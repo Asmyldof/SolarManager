@@ -7,17 +7,20 @@
 
 
 #include <avr/io.h>
+#include <avr/interrupt.h>
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * 
  *  Configuration Defines, testing and production
  * 
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-#define		WDT_PRESC_TESTING				0
-#define		TICKS_BEFORE_SAMPLE_TESTING		0
+#define		WDT_PRESC_DAY_TESTING			0b00000110 // WDT 1s
+#define		WDT_PRESC_NIGHT_TESTING			0b00000101 // WDT 0.5s
+#define		TICKS_BEFORE_SAMPLE_TESTING		2
 
-#define		WDT_PRESC_PRODUCTION			0
-#define		TICKS_BEFORE_SAMPLE_PRODUCTION	0
+#define		WDT_PRESC_DAY_PRODUCTION		0b00100001 // WDT 8s
+#define		WDT_PRESC_NIGHT_PRODUCTION		0b00100000 // WDT 4s
+#define		TICKS_BEFORE_SAMPLE_PRODUCTION	15
 
 //#define		USE_PRODUCTION					1
 
@@ -26,11 +29,56 @@
  *  Configuration Defines, universal
  * 
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-#define		TICK_CONSTANT					0	// The constant from which the day
+#define		TICK_CONSTANT					630	// The constant from which the day
 											 // ticks are subtracted to get the night
 											 // ticks. See algorithm document for more
-#define		MINIMUM_STREAK					0	// Minimum number of samples in a row
+#define		MINIMUM_STREAK					5	// Minimum number of samples in a row
 											 // before the system switches over
+
+#define		SYSTEM_CLOCK					0 // System Clock Source
+/*
+0 - Calibrated internal 8MHz
+1 - Internal WDT 128kHz oscillator
+2 - External Clock
+3 - Reserved (Will be reverted back to 8MHz)
+*/											 
+#define		CLOCK_PRESCALER					4 // System Clock Prescaler
+/*
+0 - Source / 1
+1 - Source / 2
+2 - Source / 4
+3 - Source / 8 (start-up default)
+4 - Source / 16
+5 - Source / 32
+6 - Source / 64
+7 - Source / 128
+8 - Source / 256
+9 and up: reserved (Will be reverted back to Source / 8)
+*/
+#define		ADC_PRESCALER					0 // ADC prescaler
+/*
+0 - Ckio / 2
+1 - Ckio / 2
+2 - Ckio / 4
+3 - Ckio / 8
+4 - Ckio / 16
+5 - Ckio / 32
+6 - Ckio / 64
+7 - Ckio / 128
+any higher number is masked back to the above series.
+*/
+/*
+PB0/ADC0 -> Sensor
+PB1/OC0B -> LED PWM
+PB2/CLKO -> Enable LED boost
+*/
+#define		INITIAL_PORTB		0x00					// PORTB at startup
+#define		INITIAL_DDRB		(1<<PORTB1|1<<PORTB2)	// DDRB: PB1 and 2 output
+#define		INITIAL_DIDR0		(1<<ADC0D)				// Disable input circuitry on ADC0
+#define		INITIAL_OCR0B		0x00					// OCR0B at startup
+
+
+
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -39,14 +87,40 @@
  * 
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 #ifdef USE_PRODUCTION
-#define		WDT_PRESCALER					WDT_PRESC_PRODUCTION
+#define		WDT_PRESCALER_DAY				WDT_PRESC_DAY_PRODUCTION
+#define		WDT_PRESCALER_NIGHT				WDT_PRESC_NIGHT_PRODUCTION
 #define		TICKS_BEFORE_SAMPLE				TICKS_BEFORE_SAMPLE_PRODUCTION
+#ifdef DEBUG
+#undef DEBUG
+#endif //DEBUG
 #else //USE_PRODUCTION
-#define		WDT_PRESCALER					WDT_PRESC_TESTING
+#define		WDT_PRESCALER_DAY				WDT_PRESC_DAY_TESTING
+#define		WDT_PRESCALER_NIGHT				WDT_PRESC_NIGHT_TESTING
 #define		TICKS_BEFORE_SAMPLE				TICKS_BEFORE_SAMPLE_TESTING
+#ifndef		DEBUG
+#define		DEBUG
+#endif		//DEBUG
 #endif //USE_PRODUCTION
 
+#define		WDTCR_VALUE_DAY					(1<<WDE|1<<WDIE)|(WDT_PRESCALER_DAY   & 0b00100111) // Mask out any non-prescaler bits to prevent mistakes
+#define		WDTCR_VALUE_NIGHT				(1<<WDE|1<<WDIE)|(WDT_PRESCALER_NIGHT & 0b00100111)
 
+#define		ADCSRA_START					0b11001000 | (ADC_PRESCALER & 0b00000111)
+
+#define		CCP_SIGNATURE					0xD8 // Page 12 of the Datasheets
+
+#define		CLOCK_PRESCALER_INTERNAL		(CLOCK_PRESCALER & 0b00001111)
+#define		SYSTEM_CLOCK_INTERNAL			(SYSTEM_CLOCK & 0b00000011)
+#if SYSTEM_CLOCK_INTERNAL == 3
+	#undef SYSTEM_CLOCK_INTERNAL
+	#define SYSTEM_CLOCK_INTERNAL	0 // if reserved mode chosen, default back to 8MHz
+#endif // SYSTEM_CLOCK_INTERNAL == 3
+#if CLOCK_PRESCALER_INTERNAL > 8
+	#undef CLOCK_PRESCALER_INTERNAL
+	#define CLOCK_PRESCALER_INTERNAL 3 // if reserved mode chosen, default back to Source / 8
+#endif
+
+#define		SLOWTURNOFF			0x01
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -58,6 +132,8 @@
 uint16_t	Ticks;			// Counter for number of ticks, either samples of day in total or counting down the remaining night ticks
 uint8_t		DayStreak;		// Counter for number of day samples in a row
 uint8_t		NightStreak;	// Counter for number of night samples in a row
+uint8_t		WDT_CountDown;	// Tick Counter (counts down) inside the WDT interrupt
+uint8_t		OperationalFlags; // Flag Register
 
 int main(void)
 {
@@ -70,6 +146,26 @@ int main(void)
 		Enable ADC Interrupt
 		Enable General Interrupts
 		*/
+#if SYSTEM_CLOCK_INTERNAL != 0 // If not the default
+	// Set Clock System
+	CCP = CCP_SIGNATURE;
+	CLKMSR = SYSTEM_CLOCK_INTERNAL;
+#endif // SYSTEM_CLOCK_INTERNAL != 0
+#if CLOCK_PRESCALER_INTERNAL != 3 // If not the default
+#if SYSTEM_CLOCK_INTERNAL == 0
+	// Means we did not write CCP yet, so we need to do that here now.
+	CCP = CCP_SIGNATURE;
+#endif
+	// Set Prescaler
+	CLKPSR = CLOCK_PRESCALER_INTERNAL;
+#endif
+	
+	WDT_CountDown = TICKS_BEFORE_SAMPLE;
+	WDTCSR = WDTCR_VALUE_DAY;
+	
+	
+	
+	sei();
 	
 	while(1)
     {
@@ -87,12 +183,31 @@ int main(void)
 */
 ISR(WDT_vect)
 {
+	uint8_t	Temp;
 	/* Count a tick. If tick limit is reached, trigger ADC. Use ticks by decrement
 	   to create more efficient code */
 	
 	/* if night mode end flag is set, decrease OCR0 output, when 0 switch to day
 	   count mode */
+	if( OperationalFlags && SLOWTURNOFF )
+	{
+		Temp = OCR0B;
+		if(Temp == 0)
+		{
+			// TODO: Turn off the enable pin and stop
+			
+			OperationalFlags &= ~SLOWTURNOFF;
+		}
+		Temp--;
+		OCR0B = Temp;
+	}
 	
+	WDT_CountDown--;
+	if(WDT_CountDown <= 1)
+	{
+		WDT_CountDown = TICKS_BEFORE_SAMPLE;
+		ADCSRA = ADCSRA_START;
+	}
 	
 }
 
