@@ -67,6 +67,18 @@
 7 - Ckio / 128
 any higher number is masked back to the above series.
 */
+#define		TIMER_PRESCALER					0 // Timer0 Prescaler
+/*
+0 - Timer Turned off
+1 - Ckio / 1
+2 - Ckio / 8
+3 - Ckio / 64
+4 - Ckio / 256
+5 - Ckio / 1024
+6 - External on T0, Falling Edge
+7 - External on T0, Rising Edge
+*/
+
 /*
 PB0/ADC0 -> Sensor
 PB1/OC0B -> LED PWM
@@ -109,8 +121,8 @@ PB2/CLKO -> Enable LED boost
 
 #define		CCP_SIGNATURE					0xD8 // Page 12 of the Datasheets
 
-#define		CLOCK_PRESCALER_INTERNAL		(CLOCK_PRESCALER & 0b00001111)
-#define		SYSTEM_CLOCK_INTERNAL			(SYSTEM_CLOCK & 0b00000011)
+#define		CLOCK_PRESCALER_INTERNAL		CLOCK_PRESCALER & 0b00001111
+#define		SYSTEM_CLOCK_INTERNAL			SYSTEM_CLOCK & 0b00000011
 #if SYSTEM_CLOCK_INTERNAL == 3
 	#undef SYSTEM_CLOCK_INTERNAL
 	#define SYSTEM_CLOCK_INTERNAL	0 // if reserved mode chosen, default back to 8MHz
@@ -120,7 +132,10 @@ PB2/CLKO -> Enable LED boost
 	#define CLOCK_PRESCALER_INTERNAL 3 // if reserved mode chosen, default back to Source / 8
 #endif
 
-#define		SLOWTURNOFF			0x01
+#define		INITIAL_OCR0BL_INTERNAL		INITIAL_OCR0B & 0x0FF
+#define		INITIAL_OCR0BH_INTERNAL		INITIAL_OCR0B & 0xFF00
+
+#define		FLAG_SLOWTURNOFF			0x01
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -140,11 +155,6 @@ int main(void)
     /*
 		Enable timer
 		Enable OCR PWM output
-		Enable WDT Timer
-		Enable WDT Interrupt
-		Enable ADC
-		Enable ADC Interrupt
-		Enable General Interrupts
 		*/
 #if SYSTEM_CLOCK_INTERNAL != 0 // If not the default
 	// Set Clock System
@@ -160,10 +170,12 @@ int main(void)
 	CLKPSR = CLOCK_PRESCALER_INTERNAL;
 #endif
 	
+	OCR0BH = INITIAL_OCR0BH_INTERNAL;
+	OCR0BL = INITIAL_OCR0BL_INTERNAL;
+	
+	
 	WDT_CountDown = TICKS_BEFORE_SAMPLE;
 	WDTCSR = WDTCR_VALUE_DAY;
-	
-	
 	
 	sei();
 	
@@ -177,7 +189,7 @@ int main(void)
 
 
 /*
-  Interrupt routine for a Watchgod timeout. The watchdog is the basic timing unit for
+  Interrupt routine for a Watchdog timeout. The watchdog is the basic timing unit for
   the sampling system, where the interrupt is switched over between day and night to
   adjust the 2:1 difference in the algorithm.
 */
@@ -189,17 +201,18 @@ ISR(WDT_vect)
 	
 	/* if night mode end flag is set, decrease OCR0 output, when 0 switch to day
 	   count mode */
-	if( OperationalFlags && SLOWTURNOFF )
+	if( OperationalFlags & FLAG_SLOWTURNOFF )
 	{
-		Temp = OCR0B;
+		Temp = OCR0BL;
 		if(Temp == 0)
 		{
 			// TODO: Turn off the enable pin and stop
 			
-			OperationalFlags &= ~SLOWTURNOFF;
+			OperationalFlags &= ~FLAG_SLOWTURNOFF;
 		}
 		Temp--;
-		OCR0B = Temp;
+		OCR0BH = 0;
+		OCR0BL = Temp;
 	}
 	
 	WDT_CountDown--;
