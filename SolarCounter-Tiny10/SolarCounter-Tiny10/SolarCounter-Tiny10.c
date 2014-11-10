@@ -362,15 +362,6 @@ So any value not 9 or 10 will always be 8 bit.
  * 
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-// NOTE: In the current version these, or at least SwitchToDayMode have become
-//   Candidates to become proper functions, possibly included through an external 
-//   and included module, although the total codebase is still quite small.
-//   Changing these to proper functions might even just push the code size back to
-//   512Bytes, allowing the use of the ATTiny5 in stead of the 10.
-//   Aside from that some other things have been overly expanded during the 
-//   testing and debugging phase on Monday nov 10th (of which very little ended
-//   up in the repository, as I am quite efficient at hunting broken code without
-//   continuously committing and reverting).
 inline static void SwitchToDayMode();
 inline static void SwitchToNightMode();
 
