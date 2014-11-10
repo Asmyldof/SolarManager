@@ -8,6 +8,7 @@
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/sleep.h>
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * 
@@ -29,12 +30,28 @@
  *  Configuration Defines, universal
  * 
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+// Make the defined milivolts floating (by addind a trailing .0):
+#define		SUPPLY_VOLTAGE_MV				2500.0 // uC supply voltage in mV
+#define		DARK_THRESHOLD_MV				430.0 // Level in mV below which it 
+											 // is considered dark.
+#define		DARK_HYSTERESIS_MV				10.0 // Hysteresis in mV, with a streak longer
+											 // than 3 it's less useful to have large
+											 // hysteresis.
 #define		TICK_CONSTANT					630	// The constant from which the day
 											 // ticks are subtracted to get the night
 											 // ticks. See algorithm document for more
 #define		MINIMUM_STREAK					5	// Minimum number of samples in a row
 											 // before the system switches over
 
+#define		SLEEP_MODE						4 // Sleep mode select -- 4 is good for all, 2 for production only
+/*
+0 - Idle
+1 - ADC Noise Reduction
+2 - Power-Down
+3 - Reserved
+4 - Standby
+5, 6, 7 - Reserved
+*/
 #define		SYSTEM_CLOCK					0 // System Clock Source
 /*
 0 - Calibrated internal 8MHz
@@ -42,7 +59,7 @@
 2 - External Clock
 3 - Reserved (Will be reverted back to 8MHz)
 */											 
-#define		CLOCK_PRESCALER					4 // System Clock Prescaler
+#define		CLOCK_PRESCALER					5 // System Clock Prescaler
 /*
 0 - Source / 1
 1 - Source / 2
@@ -55,7 +72,7 @@
 8 - Source / 256
 9 and up: reserved (Will be reverted back to Source / 8)
 */
-#define		ADC_PRESCALER					0 // ADC prescaler
+#define		ADC_PRESCALER					1 // ADC prescaler
 /*
 0 - Ckio / 2
 1 - Ckio / 2
@@ -67,7 +84,7 @@
 7 - Ckio / 128
 any higher number is masked back to the above series.
 */
-#define		TIMER_PRESCALER					0 // Timer0 Prescaler
+#define		TIMER_PRESCALER					1 // Timer0 Prescaler
 /*
 0 - Timer Turned off
 1 - Ckio / 1
@@ -84,12 +101,20 @@ PB0/ADC0 -> Sensor
 PB1/OC0B -> LED PWM
 PB2/CLKO -> Enable LED boost
 */
-#define		INITIAL_PORTB		0x00					// PORTB at startup
-#define		INITIAL_DDRB		(1<<PORTB1|1<<PORTB2)	// DDRB: PB1 and 2 output
-#define		INITIAL_DIDR0		(1<<ADC0D)				// Disable input circuitry on ADC0
-#define		INITIAL_OCR0B		0x00					// OCR0B at startup
 
-
+#define		PORTB_SENSOR_PIN		(1<<PORTB0)
+#define		PORTB_LEDPWM_PIN		(1<<PORTB1) // Has to be one of the two PWM outputs
+#define		PORTB_ENABLEBOOST_PIN	(1<<PORTB2)
+#define		ADC_DIDR_SENSOR_PIN		(1<<ADC0D)
+#define		INITIAL_OCR0			0x00			// OCR0B at startup
+#define		MAXIMUM_OCR0			0xFF			// In this version, stick to 8 bit
+#define		OCR0_DECREASE_STEPSIZE	2 // decrease by 2, so it'll dim over 10 minutes with a 4s WDT interval.
+#define		OCR0B_RESOLUTION		8				// Leave this at 8 in this version!
+/*
+Options: 10, 9 or 8.
+If it's not 10, then if it's not 9, it's set to 8.
+So any value not 9 or 10 will always be 8 bit.
+*/
 
 
 
@@ -121,21 +146,97 @@ PB2/CLKO -> Enable LED boost
 
 #define		CCP_SIGNATURE					0xD8 // Page 12 of the Datasheets
 
-#define		CLOCK_PRESCALER_INTERNAL		CLOCK_PRESCALER & 0b00001111
-#define		SYSTEM_CLOCK_INTERNAL			SYSTEM_CLOCK & 0b00000011
-#if SYSTEM_CLOCK_INTERNAL == 3
+// Nest two defines include brackets specifically for logic pre-proc tests later on, don't remove them.
+#define		CLOCK_PRESCALER_INTERNAL		(CLOCK_PRESCALER & 0b00001111)
+#define		SYSTEM_CLOCK_INTERNAL			(SYSTEM_CLOCK & 0b00000011)
+
+#if (SYSTEM_CLOCK_INTERNAL == 3)
+#warning "System Clock Definition set to reserved state: Reverting to 8MHz internal clock"
 	#undef SYSTEM_CLOCK_INTERNAL
 	#define SYSTEM_CLOCK_INTERNAL	0 // if reserved mode chosen, default back to 8MHz
 #endif // SYSTEM_CLOCK_INTERNAL == 3
-#if CLOCK_PRESCALER_INTERNAL > 8
+#if (CLOCK_PRESCALER_INTERNAL > 8)
+#warning "Clock Prescaler Set to reserved state: Reverting to Source / 8 (default)"
 	#undef CLOCK_PRESCALER_INTERNAL
 	#define CLOCK_PRESCALER_INTERNAL 3 // if reserved mode chosen, default back to Source / 8
 #endif
 
-#define		INITIAL_OCR0BL_INTERNAL		INITIAL_OCR0B & 0x0FF
-#define		INITIAL_OCR0BH_INTERNAL		INITIAL_OCR0B & 0xFF00
+#define		INITIAL_OCR0L_INTERNAL		INITIAL_OCR0 & 0x0FF
+#define		INITIAL_OCR0H_INTERNAL		INITIAL_OCR0 & 0xFF00
+
+#define		MAXIMUM_OCR0L_INTERNAL		MAXIMUM_OCR0 & 0x0FF
+#define		MAXIMUM_OCR0H_INTERNAL		MAXIMUM_OCR0 & 0xFF00
+
+// Calculate the dark and light thresholds from the values set above:
+#define		DARK_THRESHOLD		(uint8_t)(((DARK_THRESHOLD_MV - DARK_HYSTERESIS_MV)*255.0)/SUPPLY_VOLTAGE_MV)
+#define		LIGHT_THRESHOLD		(uint8_t)(((DARK_THRESHOLD_MV + DARK_HYSTERESIS_MV)*255.0)/SUPPLY_VOLTAGE_MV)
+
+// Define PORTB and DDRB from defined pins:
+#define		INITIAL_PORTB		0x00					// PORTB at startup
+#define		INITIAL_DDRB		PORTB_LEDPWM_PIN|PORTB_ENABLEBOOST_PIN
+														// DDRB: LEDEnable & LEDPWM output
+#define		INITIAL_DIDR0		ADC_DIDR_SENSOR_PIN		// Disable input circuitry on SENSOR
+
+#if OCR0B_RESOLUTION == 10
+#warning "PWM Resolution set to 10 bits, please check if this is intended"
+#error "10bit resoltion not supported yet"
+// Even though the code doesn't support it yet, the TCCR0A is added here, so when it's
+// supportes, only the error needs to be removed.
+#define		TCCR0A_INTERNAL		0b00100011
+// TODO: WDT interrupt needs to be made compatible with 10 and 9 bit PWM before the above error is removed!
+#elif OCR0B_RESOLUTION == 9
+#warning "PWM Resolution set to 9 bits, please check if this is intended"
+#error "9bit resoltion not supported yet"
+// Even though the code doesn't support it yet, the TCCR0A is added here, so when it's
+// supportes, only the error needs to be removed.
+#define		TCCR0A_INTERNAL		0b00100010
+// TODO: WDT interrupt needs to be made compatible with 10 and 9 bit PWM before the above error is removed!
+#else // OCR0B_RESOLUTION is not 10 or 9
+#define		TCCR0A_INTERNAL		0b00100001
+#endif
+#define		TCCR0B_INTERNAL		0x08|(TIMER_PRESCALER & 0x07)
+
+#if	(PORTB_LEDPWM_PIN == (1<<PORTB1))
+#define		OCR0OUT_REGISTER_LOW	OCR0BL
+#define		OCR0OUT_REGISTER_HIGH	OCR0BH
+#elif (PORTB_LEDPWM_PIN == (1<<PORTB0))
+#define		OCR0OUT_REGISTER_LOW	OCR0AL
+#define		OCR0OUT_REGISTER_HIGH	OCR0AH
+#else
+#error "Configured LEDPWM output pin is not a Timer0 PWM enabled pin."
+#endif
+
+#define		ACSR_INTERNAL				0x80 // Power disable to the Analog Comparator.
+#define		PRR_TIMEROFF				0x01 // PRR value to disable the Timer
+
+#if (SLEEP_MODE == 3)
+#warning "Reserved Sleep Mode selected, reverting to Idle mode (0)."
+	#undef SLEEP_MODE
+	#define SLEEP_MODE	0
+#elif (SLEEP_MODE > 4)
+#warning "Reserved Sleep Mode selected, reverting to Idle mode (0)."
+	#undef SLEEP_MODE
+	#define SLEEP_MODE	0
+#endif
+
+#define		SMCR_INTERNAL				(SLEEP_MODE << 1)|0x01 // Shift up sleep mode and add enable bit by logic or
+
+
 
 #define		FLAG_SLOWTURNOFF			0x01
+#define		FLAG_LASTMODE_WAS_DAY		0x02
+#define		FLAG_LIGHTISON				0x04
+
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ * 
+ *  Local inline helper functions (see end of file):
+ * 
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+inline static void SwitchToDayMode();
+inline static void SwitchToNightMode();
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -152,30 +253,34 @@ uint8_t		OperationalFlags; // Flag Register
 
 int main(void)
 {
-    /*
-		Enable timer
-		Enable OCR PWM output
-		*/
-#if SYSTEM_CLOCK_INTERNAL != 0 // If not the default
+	// Diable the power to the Analog Comparator:
+	ACSR = ACSR_INTERNAL;
+	
+	// Set protected registers, if required:
+#if (SYSTEM_CLOCK_INTERNAL != 0) // If not the default
+#warning "Reconfiguring the system clock source. Please make sure this is intended."
 	// Set Clock System
 	CCP = CCP_SIGNATURE;
 	CLKMSR = SYSTEM_CLOCK_INTERNAL;
 #endif // SYSTEM_CLOCK_INTERNAL != 0
-#if CLOCK_PRESCALER_INTERNAL != 3 // If not the default
+#if (CLOCK_PRESCALER_INTERNAL != 3) // If not the default
+#warning "Reconfiguring the system prescaler. Please make sure this is intended."
 #if SYSTEM_CLOCK_INTERNAL == 0
-	// Means we did not write CCP yet, so we need to do that here now.
+	// Means we did not write CCP yet above, so we need to do that here now.
 	CCP = CCP_SIGNATURE;
 #endif
 	// Set Prescaler
 	CLKPSR = CLOCK_PRESCALER_INTERNAL;
 #endif
 	
-	OCR0BH = INITIAL_OCR0BH_INTERNAL;
-	OCR0BL = INITIAL_OCR0BL_INTERNAL;
-	
+	// Set initial OCR as required:
+	OCR0OUT_REGISTER_HIGH = INITIAL_OCR0H_INTERNAL;
+	OCR0OUT_REGISTER_LOW = INITIAL_OCR0L_INTERNAL;
 	
 	WDT_CountDown = TICKS_BEFORE_SAMPLE;
 	WDTCSR = WDTCR_VALUE_DAY;
+	
+	Ticks = 0; // Make sure we start at 0 ticks, since that's safest.
 	
 	sei();
 	
@@ -196,23 +301,29 @@ int main(void)
 ISR(WDT_vect)
 {
 	uint8_t	Temp;
+	
+	SMCR = 0; // prevent sleep unless really wanted.
 	/* Count a tick. If tick limit is reached, trigger ADC. Use ticks by decrement
 	   to create more efficient code */
-	
 	/* if night mode end flag is set, decrease OCR0 output, when 0 switch to day
 	   count mode */
-	if( OperationalFlags & FLAG_SLOWTURNOFF )
+	if( (OperationalFlags & FLAG_SLOWTURNOFF) == FLAG_SLOWTURNOFF )
 	{
-		Temp = OCR0BL;
-		if(Temp == 0)
-		{
-			// TODO: Turn off the enable pin and stop
-			
-			OperationalFlags &= ~FLAG_SLOWTURNOFF;
+		//TODO: Make compatible with higher resolution PWM
+		Temp = OCR0OUT_REGISTER_LOW;
+		if(Temp <= OCR0_DECREASE_STEPSIZE) // this is a test to see if we're within the end-margin.
+		{                 // since step size can be arbitrary just checking for 0 can become an infinite
+						  // loop, for example with step size 2, it will wrap around once, going from
+						  // 1 to 254, skipping 0 the first go around. While with this check, the 
+						  // system will switch to off/day-mode when the value is 1.
+			SwitchToDayMode();
 		}
-		Temp--;
-		OCR0BH = 0;
-		OCR0BL = Temp;
+		else
+		{
+			Temp -= OCR0_DECREASE_STEPSIZE; 
+			OCR0OUT_REGISTER_HIGH = 0; //TODO: Make compatible with higher resolution PWM
+			OCR0OUT_REGISTER_LOW = Temp;
+		}
 	}
 	
 	WDT_CountDown--;
@@ -221,18 +332,28 @@ ISR(WDT_vect)
 		WDT_CountDown = TICKS_BEFORE_SAMPLE;
 		ADCSRA = ADCSRA_START;
 	}
+	else
+	{
+		// If not starting an ADC conversion: Go back to sleep mode:
+		SMCR = SMCR_INTERNAL;
+		sleep_cpu();
+		// Because we want the option of "deep sleep", we need to only trigger when no
+		// ADC is started.
+	}
 	
 }
 
 /*
   ADC interrupt routine: Is called once every 1min during night-mode and once every 2min
-  during day mode. While it is not strictly nescesary to keep checking in night mode, it
+  during day mode. While it is not strictly necessary to keep checking in night mode, it
   is a good preventative measure in case a glitch occurs, to detect day break and 
   potentially return to normal operation. It may be idle hope, but it's better to  
   over-design the software a little in the hopes of catching some potential break-downs.
 */
 ISR(ADC_vect)
 {
+	uint8_t	Temp;
+	
 	/* Test the ADC result:
 		When day:	Count a "Tick"(uint16)
 					Reset night streak
@@ -241,14 +362,97 @@ ISR(ADC_vect)
 						if( daystreak = limit )
 							turn off light
 							switch to day count timeout
-		When night: Reset day streak
+		When night:	Reset day streak
 					if( light = off )
 						count night streak
 						if( nightstreak = limit )
 							calculate night-ticks
 							switch to night count timeout
 							enable light
+					else
+						decrease tick
+							if( tick == 0 )
+								set decrease flag
 	*/						
+	Temp = ADCL;
+	
+	if( Temp > LIGHT_THRESHOLD )
+	{ // When Day:
+		Ticks++; // count a tick
+		NightStreak = 0; // reset night streak
+		if( (OperationalFlags & FLAG_LIGHTISON) == FLAG_LIGHTISON )
+		{ // if light it on:
+			DayStreak++; // add day streak
+			if( DayStreak >= MINIMUM_STREAK )
+			{
+				// switch to day mode
+				SwitchToDayMode();
+				OperationalFlags |= FLAG_LASTMODE_WAS_DAY; // Set previous mode to day, so night mode can be triggered
+				DayStreak = 0; // May as well reset the day streak, since we don't need it anymore
+					// code cleanliness.
+			}
+		}
+	}
+	else if( Temp < DARK_THRESHOLD )
+	{ // When night:
+		DayStreak = 0; // reset day streak
+		if( (OperationalFlags & FLAG_LIGHTISON) != FLAG_LIGHTISON )
+		{ // if light is off
+			
+			// introduced a new flag to prevent repeated triggering of night mode
+			// after turning off the lights when the time-out is reached:
+			if( (OperationalFlags & FLAG_LASTMODE_WAS_DAY) == FLAG_LASTMODE_WAS_DAY)
+			{
+				NightStreak++; 
+				if( NightStreak >= MINIMUM_STREAK )
+				{
+					SwitchToNightMode();
+					OperationalFlags &= ~FLAG_LASTMODE_WAS_DAY;
+					NightStreak = 0;
+				}
+			}
+		}
+		else
+		{ // if in stead the light is on:
+			Ticks--; // take off one tick
+			if( Ticks == 0 )
+			{
+				OperationalFlags &= ~FLAG_LIGHTISON; // prevent "light on" events from triggering
+				OperationalFlags |= FLAG_SLOWTURNOFF; // enable PWM slow decrease.
+			}
+		}
+	}
 	
 	
+	// When the ADC is done, go into sleep (since the WDT will interrupt it again:
+	SMCR = SMCR_INTERNAL;
+	sleep_cpu();
+}
+
+// helper function: Switch to day mode: Turn off lights, set timer to power saving, set WDT sampling to day interval
+inline static void SwitchToDayMode()
+{
+	TCCR0B = 0x00; // turn timer off
+	TCCR0A = 0x00; // turn timer off
+	OCR0OUT_REGISTER_HIGH = INITIAL_OCR0H_INTERNAL;
+	OCR0OUT_REGISTER_LOW = INITIAL_OCR0L_INTERNAL;
+	PORTB &= ~PORTB_ENABLEBOOST_PIN; // turn off the booster
+	OperationalFlags &= ~FLAG_SLOWTURNOFF; 
+	WDTCSR = WDTCR_VALUE_DAY; // switch to day interval
+	PRR |= PRR_TIMEROFF; // Turn off the timer module to save energy when in day mode.
+	OperationalFlags &= ~FLAG_LIGHTISON; // make sure the system knows the lights are off
+}
+
+// helper function: Switch to night mode: Turn on lights, enable timer, set WDT sampling to night interval
+inline static void SwitchToNightMode()
+{
+	PRR &= ~PRR_TIMEROFF; // Turn on the timer module to enable PWM.
+	PORTB |= PORTB_ENABLEBOOST_PIN; // turn on LED boost
+	OperationalFlags &= ~FLAG_SLOWTURNOFF; // No slow turn off, since we just started night mode
+	WDTCSR = WDTCR_VALUE_NIGHT; // switch to night interval
+	OCR0OUT_REGISTER_HIGH = MAXIMUM_OCR0H_INTERNAL;
+	OCR0OUT_REGISTER_LOW = MAXIMUM_OCR0L_INTERNAL;
+	TCCR0B = TCCR0B_INTERNAL; // Enable timer fucntionality
+	TCCR0A = TCCR0A_INTERNAL;
+	OperationalFlags |= FLAG_LIGHTISON; // Set light on flag in the flagbyte
 }
