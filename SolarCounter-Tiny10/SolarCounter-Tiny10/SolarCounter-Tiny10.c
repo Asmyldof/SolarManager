@@ -2,9 +2,106 @@
  * SolarCounter_Tiny10.c
  *
  * Created: 6-11-2014 10:08:45
- *  Author: Robert
+ *  Author: Robert van Leeuwen
+ *  (c) 2014 Asmyldof, the Netherlands (see notice below)
+ *
+ * This code is made available under MIT license (see copyright notice below). 
+ *
+ * The hardware that belongs to it is proprietary,
+ * except for the sensor module design, which is included. The hardware belonging to this code
+ * is a heavily structured design to achieve harvesting efficiency of up to 95% and total Solar
+ * to light efficiency (overal, all losses included) at or above 82% depending on environmental
+ * temperature. However the user can design their own hardware using the theory of operation
+ * described below.
+ * 
+ * This file contains a configurable solar-power checker with an intelligent system to determine
+ * light hours and calculate dark hours before midnight. Allowing the system to switch on the
+ * lights when the sun is setting (or has set) and then continue to keep the lights on for a certain
+ * amount of time, determined by a preset constant and the number of detected ticks of day.
+ *
+ * It is aimed at using an SFH325FA by OSRAM with a 15kOhm resistor to ground.
+ * Another sensor can be used, but some research may be needed to determine the operation
+ * in solar cycles and then set the light threshold values. The SFH325FA has the advantage of
+ * having a great immunity for non-infrared wavelengths, eliminating most artificial light sources
+ * and giving no response at all to lunar light.
+ *
+ * The program is created for a system using a 4W to 10W solar panel to achieve reasonable
+ * power harvesting in winter days, a 80Wh+ 3.7V Lithium-Polymer battery and a boost 
+ * boost converter for the lights with an independent enable, allowing extreme power-saving
+ * when not having the lights enabled.
+ * 
+ * Theory of operation:
+ * The system uses the WDT interrupt as a timing mechanism, where the time-out is switched 
+ * to create a difference between timing of day-light samples and night-time samples.
+ *
+ * When the system sees sunshine (or day-time light at least)  it counts a tick, this happens every
+ * two minutes once day-time has initiated (since night-time time-out is different a slight offset
+ * may occur at some instances, but this is okay, since on the grand scheme it doesn't differ that
+ * much, no need to over-complicate the software).
+ *
+ * After the system sees a minimum series of samples of no-sun-light (no IR present), it switches
+ * to night mode, first it calculates a new number of ticks:
+ * Ticks = DefinedConstant - PreviouslyCountedDayTicks.
+ * This way, if the days are short, the new Ticks number will be higher, than when the days are long.
+ * Then, every time the system sees a night value, it will decrease the Ticks variable. When it hits 0
+ * it will start to decrease the PWM value on the LEDoutput over a configurable number of minutes.
+ *
+ * As it is designed/committed the system will use two minute intervals for the day ticks, and one
+ * minute intervals for the night ticks. Combined with a set "DefinedConstant" of aroun 620 to 640
+ * this will create a system that in the winter will keep the lights on to about 23:00 to 23:30 and in 
+ * the summer to about 24:00 to 0:45.
+ *
+ * The following defined constants will be useful to discover the pinning for your own hardware design:
+ *   PORTB_LEDPWM_PIN  -- LED PWM Output (Slowly decreases brightness once the time-out is reached)
+ *   PORTB_ENABLEBOOST_PIN  -- LED Boost Enable (switches hard on when PWM > 0%, hard off when PWM == 0%)
+ *   PORTB_SENSOR_PIN  -- Sensor input (Analog Sensor pin)
+ *   ADC_DIDR_SENSOR_PIN  -- ADC Sensor Channel Disable bit - Don't forget to change this when changing the sensor input.
+ * 
+ * The following values will be useful to you when making a design with a different sensor or
+ * supply voltage:
+ *   SUPPLY_VOLTAGE_MV
+ *   DARK_THRESHOLD_MV
+ *   DARK_HYSTERESIS_MV
+ *
+ * The following values will be helpful if you want to fiddle with the algorithm to get different off-times:
+ *   TICK_CONSTANT
+ *   TICKS_BEFORE_SAMPLE
+ *   WDT_PRESC_NIGHT
+ *   WDT_PRESC_DAY
+ *   
+ * Final Note:
+ *    Set or disable the "USE_PRODUCTION" define a few lines below, to go between the two settings of 
+ *    time-out. USE_PRODUCTION will go to minute scale, making it measure and run for hours. With
+ *    that disabled it will use testing settings, which in the system as it is supplied will be seconds in
+ *    stead of minutes, and as such it will run for minutes in stead of hours, allowing the development
+ *    and test cycle of tweaked numbers to be executed within 10 to 20 minutes.
+ *  
+ *    (the USE_PRODUCTION also undefines the DEBUG flag. While this is not used anywhere in this code,
+ *    as its presence is heavily dependent on platform and your makefile, I wanted to make sure I
+ *    wouldn't get stuck in unintended debug modes in a production unit. This is either decent coding or
+ *    sloppy coding, depending on your school of thought. Incidentally, I'm mot inclined to find it sloppy,
+ *    but it is my experience in public embedded code that most just copy-paste, so I chose safety over
+ *    cleanliness.)
  */ 
 
+/* Copyright Notice:
+ * 
+ * You are free to use this code in any of your own designs, whether free-ware or not. You are allowed
+ * to use it to make buckets and buckets of money. While I would appreciate you pay me a bucket or
+ * two if you do, you are in no way obligated.
+ *
+ * But, there's rules!
+ * One: You MUST include this entire notice in the source files that include ANY of my work.
+ * Two: Your end-product must contain a reference/dedication to me and preferably my website.
+ * Three: Any assistance with any or all of this code may be subject to billing, contact me to find out.
+ * Four: You realise that NONE of this code comes with any guarantee when used in your own application
+ * Five: You do not use me, my site or my work to promote your own projects using, or not using, this code.
+ * Six: You get at least some manner of joy out of using this. Or at least try to.
+ *
+ *  COPYRIGHT: Robert van Leeuwen, Asmyldof, 2014.
+ *                      http://www.asmyldof.com
+ *                      git-open@asmyldof.com
+ */
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -15,9 +112,9 @@
  *  Configuration Defines, testing and production
  * 
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-#define		WDT_PRESC_DAY_TESTING			0b00000110 // WDT 1s
-#define		WDT_PRESC_NIGHT_TESTING			0b00000101 // WDT 0.5s
-#define		TICKS_BEFORE_SAMPLE_TESTING		2
+#define		WDT_PRESC_DAY_TESTING			0b00000110 // WDT 1s -- Watchdog timer timeout during the day, see WDTCSR in datasheet
+#define		WDT_PRESC_NIGHT_TESTING			0b00000101 // WDT 0.5s -- Watchdog timer timeout during the night, see WDTCSR in datasheet
+#define		TICKS_BEFORE_SAMPLE_TESTING		2 // number of ticks to count in both situations to get the final sample tome-out
 
 #define		WDT_PRESC_DAY_PRODUCTION		0b00100001 // WDT 8s
 #define		WDT_PRESC_NIGHT_PRODUCTION		0b00100000 // WDT 4s
@@ -97,11 +194,11 @@ any higher number is masked back to the above series.
 */
 
 /*
+In the porprietary set up:
 PB0/ADC0 -> Sensor
 PB1/OC0B -> LED PWM
 PB2/CLKO -> Enable LED boost
 */
-
 #define		PORTB_SENSOR_PIN		(1<<PORTB0)
 #define		PORTB_LEDPWM_PIN		(1<<PORTB1) // Has to be one of the two PWM outputs
 #define		PORTB_ENABLEBOOST_PIN	(1<<PORTB2)
@@ -120,7 +217,7 @@ So any value not 9 or 10 will always be 8 bit.
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * 
- *  Internal Defines
+ *  Internal Defines - Do not tamper with! Use the defines above to change parameters
  * 
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 #ifdef USE_PRODUCTION
