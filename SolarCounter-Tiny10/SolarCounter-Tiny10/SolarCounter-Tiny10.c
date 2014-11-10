@@ -414,6 +414,8 @@ ISR(WDT_vect)
 						  // 1 to 254, skipping 0 the first go around. While with this check, the 
 						  // system will switch to off/day-mode when the value is 1.
 			SwitchToDayMode();
+			Ticks = 0; // Reset the Ticks buffer to make sure we start fresh again, though this should
+			          // be guaranteed
 		}
 		else
 		{
@@ -503,8 +505,10 @@ ISR(ADC_vect)
 				NightStreak++; 
 				if( NightStreak >= MINIMUM_STREAK )
 				{
+					Ticks = TICK_CONSTANT - Ticks; // Calculate the night-ticks.
+					
 					SwitchToNightMode();
-					OperationalFlags &= ~FLAG_LASTMODE_WAS_DAY;
+					OperationalFlags &= ~FLAG_LASTMODE_WAS_DAY; // make sure we don't re-trigger.
 					NightStreak = 0;
 				}
 			}
