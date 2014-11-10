@@ -112,8 +112,8 @@
  *  Configuration Defines, testing and production
  * 
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-#define		WDT_PRESC_DAY_TESTING			0b00000110 // WDT 1s -- Watchdog timer timeout during the day, see WDTCSR in datasheet
-#define		WDT_PRESC_NIGHT_TESTING			0b00000101 // WDT 0.5s -- Watchdog timer timeout during the night, see WDTCSR in datasheet
+#define		WDT_PRESC_DAY_TESTING			0b00000101 //0b00000110 // WDT 1s -- Watchdog timer timeout during the day, see WDTCSR in datasheet
+#define		WDT_PRESC_NIGHT_TESTING			0b00000100 //0b00000101 // WDT 0.5s -- Watchdog timer timeout during the night, see WDTCSR in datasheet
 #define		TICKS_BEFORE_SAMPLE_TESTING		2 // number of ticks to count in both situations to get the final sample tome-out
 
 #define		WDT_PRESC_DAY_PRODUCTION		0b00100001 // WDT 8s
@@ -129,9 +129,9 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 // Make the defined milivolts floating (by addind a trailing .0):
 #define		SUPPLY_VOLTAGE_MV				2500.0 // uC supply voltage in mV
-#define		DARK_THRESHOLD_MV				430.0 // Level in mV below which it 
+#define		DARK_THRESHOLD_MV				420.0 // Level in mV below which it 
 											 // is considered dark.
-#define		DARK_HYSTERESIS_MV				10.0 // Hysteresis in mV, with a streak longer
+#define		DARK_HYSTERESIS_MV				8.0 // Hysteresis in mV, with a streak longer
 											 // than 3 it's less useful to have large
 											 // hysteresis.
 #define		TICK_CONSTANT					630	// The constant from which the day
@@ -139,6 +139,14 @@
 											 // ticks. See algorithm document for more
 #define		MINIMUM_STREAK					5	// Minimum number of samples in a row
 											 // before the system switches over
+#define		MINIMUM_DAY_BEFORE_NIGHT		300	// Minimum number of minutes counted 
+											 // the software will accept a streak to be
+											 // actual night time. Shortest day in the
+											 // Netherlands is near 8 hours, so I chose
+											 // 5 hours = 300 minutes (because maybe
+											 // there's leaves falling onto the sensor or
+											 // something else like that, never take the
+											 // maximum)
 
 #define		SLEEP_MODE						4 // Sleep mode select -- 4 is good for all, 2 for production only
 /*
@@ -156,7 +164,7 @@
 2 - External Clock
 3 - Reserved (Will be reverted back to 8MHz)
 */											 
-#define		CLOCK_PRESCALER					5 // System Clock Prescaler
+#define		CLOCK_PRESCALER					4 // System Clock Prescaler
 /*
 0 - Source / 1
 1 - Source / 2
@@ -169,8 +177,8 @@
 8 - Source / 256
 9 and up: reserved (Will be reverted back to Source / 8)
 */
-#define		ADC_PRESCALER					1 // ADC prescaler
-/*
+#define		ADC_PRESCALER					2 // ADC prescaler: 
+/* Make sure the ADC is between 50kHz and 200kHz
 0 - Ckio / 2
 1 - Ckio / 2
 2 - Ckio / 4
@@ -203,7 +211,8 @@ PB2/CLKO -> Enable LED boost
 #define		PORTB_LEDPWM_PIN		(1<<PORTB1) // Has to be one of the two PWM outputs
 #define		PORTB_ENABLEBOOST_PIN	(1<<PORTB2)
 #define		ADC_DIDR_SENSOR_PIN		(1<<ADC0D)
-#define		INITIAL_OCR0			0x00			// OCR0B at startup
+#define		ADC_ADMUX				0x00			// TODO: Make this and the DIDRPIN tied to the Sensor pin definition through internals
+#define		INITIAL_OCR0			0x00			// OCR0 at startup
 #define		MAXIMUM_OCR0			0xFF			// In this version, stick to 8 bit
 #define		OCR0_DECREASE_STEPSIZE	2 // decrease by 2, so it'll dim over 10 minutes with a 4s WDT interval.
 #define		OCR0B_RESOLUTION		8				// Leave this at 8 in this version!
@@ -268,6 +277,11 @@ So any value not 9 or 10 will always be 8 bit.
 #define		DARK_THRESHOLD		(uint8_t)(((DARK_THRESHOLD_MV - DARK_HYSTERESIS_MV)*255.0)/SUPPLY_VOLTAGE_MV)
 #define		LIGHT_THRESHOLD		(uint8_t)(((DARK_THRESHOLD_MV + DARK_HYSTERESIS_MV)*255.0)/SUPPLY_VOLTAGE_MV)
 
+#define		MINIMUM_DAY_BEFORE_NIGHT_INTERNAL	(MINIMUM_DAY_BEFORE_NIGHT >> 1) // divide by two
+													// TODO: Make the above shift more flexible toward
+													// different WDT interrupt distances
+
+
 // Define PORTB and DDRB from defined pins:
 #define		INITIAL_PORTB		0x00					// PORTB at startup
 #define		INITIAL_DDRB		PORTB_LEDPWM_PIN|PORTB_ENABLEBOOST_PIN
@@ -317,7 +331,6 @@ So any value not 9 or 10 will always be 8 bit.
 #endif
 
 #define		SMCR_INTERNAL				(SLEEP_MODE << 1)|0x01 // Shift up sleep mode and add enable bit by logic or
-
 
 
 #define		FLAG_SLOWTURNOFF			0x01
@@ -370,14 +383,25 @@ int main(void)
 	CLKPSR = CLOCK_PRESCALER_INTERNAL;
 #endif
 	
-	// Set initial OCR as required:
-	OCR0OUT_REGISTER_HIGH = INITIAL_OCR0H_INTERNAL;
-	OCR0OUT_REGISTER_LOW = INITIAL_OCR0L_INTERNAL;
+	PORTB = INITIAL_PORTB;
+	DDRB = INITIAL_DDRB;
+	DIDR0 = INITIAL_DIDR0;
+	ADMUX = ADC_ADMUX;
+	
+	SwitchToDayMode();
 	
 	WDT_CountDown = TICKS_BEFORE_SAMPLE;
-	WDTCSR = WDTCR_VALUE_DAY;
 	
 	Ticks = 0; // Make sure we start at 0 ticks, since that's safest.
+	
+	//PORTB = PORTB_LEDPWM_PIN | PORTB_ENABLEBOOST_PIN;
+	/*
+	PORTB = PORTB_ENABLEBOOST_PIN;
+	OCR0OUT_REGISTER_HIGH = 0;//MAXIMUM_OCR0H_INTERNAL;
+	OCR0OUT_REGISTER_LOW = 128;//MAXIMUM_OCR0L_INTERNAL;
+	TCCR0B = TCCR0B_INTERNAL; // Enable timer fucntionality
+	TCCR0A = TCCR0A_INTERNAL;
+	*/
 	
 	sei();
 	
@@ -503,8 +527,8 @@ ISR(ADC_vect)
 			if( (OperationalFlags & FLAG_LASTMODE_WAS_DAY) == FLAG_LASTMODE_WAS_DAY)
 			{
 				NightStreak++; 
-				if( NightStreak >= MINIMUM_STREAK )
-				{
+				if( (NightStreak >= MINIMUM_STREAK) && (Ticks >= MINIMUM_DAY_BEFORE_NIGHT_INTERNAL) )
+				{ // If the nightstreak is long enough and there were plenty Ticks:
 					Ticks = TICK_CONSTANT - Ticks; // Calculate the night-ticks.
 					
 					SwitchToNightMode();
@@ -553,7 +577,7 @@ inline static void SwitchToNightMode()
 	WDTCSR = WDTCR_VALUE_NIGHT; // switch to night interval
 	OCR0OUT_REGISTER_HIGH = MAXIMUM_OCR0H_INTERNAL;
 	OCR0OUT_REGISTER_LOW = MAXIMUM_OCR0L_INTERNAL;
-	TCCR0B = TCCR0B_INTERNAL; // Enable timer fucntionality
+	TCCR0B = TCCR0B_INTERNAL; // Enable timer functionality
 	TCCR0A = TCCR0A_INTERNAL;
 	OperationalFlags |= FLAG_LIGHTISON; // Set light on flag in the flagbyte
 }
