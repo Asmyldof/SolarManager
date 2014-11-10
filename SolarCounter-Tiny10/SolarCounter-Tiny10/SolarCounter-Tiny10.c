@@ -7,12 +7,12 @@
  *
  * This code is made available under MIT license (see copyright notice below). 
  *
- * The hardware that belongs to it is proprietary,
+ * The hardware that belongs to it is proprietary, for which the customer paid good money,
  * except for the sensor module design, which is included. The hardware belonging to this code
  * is a heavily structured design to achieve harvesting efficiency of up to 95% and total Solar
- * to light efficiency (overal, all losses included) at or above 82% depending on environmental
- * temperature. However the user can design their own hardware using the theory of operation
- * described below.
+ * to battery to light efficiency (overall, all losses included) at or above 75% depending on 
+ * environmental temperature. However the user can design their own hardware using the 
+ * theory of operation described below.
  * 
  * This file contains a configurable solar-power checker with an intelligent system to determine
  * light hours and calculate dark hours before midnight. Allowing the system to switch on the
@@ -112,41 +112,54 @@
  *  Configuration Defines, testing and production
  * 
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-#define		WDT_PRESC_DAY_TESTING			0b00000101 //0b00000110 // WDT 1s -- Watchdog timer timeout during the day, see WDTCSR in datasheet
-#define		WDT_PRESC_NIGHT_TESTING			0b00000100 //0b00000101 // WDT 0.5s -- Watchdog timer timeout during the night, see WDTCSR in datasheet
-#define		TICKS_BEFORE_SAMPLE_TESTING		2 // number of ticks to count in both situations to get the final sample tome-out
+#define		WDT_PRESC_DAY_TESTING			0b00000011 //0b00000110 // WDT 1s -- Watchdog timer timeout during the day, see WDTCSR in datasheet
+#define		WDT_PRESC_NIGHT_TESTING			0b00000010 //0b00000101 // WDT 0.5s -- Watchdog timer timeout during the night, see WDTCSR in datasheet
+#define		TICKS_BEFORE_SAMPLE_TESTING		13 // number of ticks to count in both situations to get the final sample tome-out
 
 #define		WDT_PRESC_DAY_PRODUCTION		0b00100001 // WDT 8s
 #define		WDT_PRESC_NIGHT_PRODUCTION		0b00100000 // WDT 4s
-#define		TICKS_BEFORE_SAMPLE_PRODUCTION	15
+#define		TICKS_BEFORE_SAMPLE_PRODUCTION	14
 
-//#define		USE_PRODUCTION					1
+#define		USE_PRODUCTION					
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * 
  *  Configuration Defines, universal
  * 
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+// TODO: Find the bug in Night Install that makes it hang in light-on mode
+//#define		NIGHT_INSTALL					// Setting this define will make the unit start a 120minute 
+								// night mode run after power-up, this is most useful when installing at night
+								// to see if all the lights are properly connected, plus during the day it'll turn 
+								// off after 30 minutes (defined number, can be changed).
+
+#define		NIGHT_INSTALL_TIMEOUT_MINUTES	120
+
 // Make the defined milivolts floating (by addind a trailing .0):
 #define		SUPPLY_VOLTAGE_MV				2500.0 // uC supply voltage in mV
-#define		DARK_THRESHOLD_MV				420.0 // Level in mV below which it 
+#define		DARK_THRESHOLD_MV				450.0 // Level in mV below which it 
 											 // is considered dark.
-#define		DARK_HYSTERESIS_MV				8.0 // Hysteresis in mV, with a streak longer
+#define		DARK_HYSTERESIS_MV				10.0 // Hysteresis in mV, with a streak longer
 											 // than 3 it's less useful to have large
 											 // hysteresis.
-#define		TICK_CONSTANT					630	// The constant from which the day
+#define		TICK_CONSTANT					640	// The constant from which the day
 											 // ticks are subtracted to get the night
 											 // ticks. See algorithm document for more
-#define		MINIMUM_STREAK					5	// Minimum number of samples in a row
-											 // before the system switches over
+#define		MINIMUM_NIGHT_STREAK			5	// Minimum number of samples in a row
+											 // before the system switches over to night mode
+#define		MINIMUM_DAY_STREAK				30 // minimum number of samples to switch to
+											 // day mode.
 #define		MINIMUM_DAY_BEFORE_NIGHT		300	// Minimum number of minutes counted 
-											 // the software will accept a streak to be
-											 // actual night time. Shortest day in the
+											 // at which the software will accept a streak 
+											 // to be actual night time. Shortest day in the
 											 // Netherlands is near 8 hours, so I chose
 											 // 5 hours = 300 minutes (because maybe
 											 // there's leaves falling onto the sensor or
 											 // something else like that, never take the
 											 // maximum)
+#define		MINIMUM_AFTERGLOW_MINUTES		130 // Minimum number of ticks to keep the light on, always
+#define		MAXIMUM_AFTERGLOW_MINUTES		415 // Maximum number of ticks to keep the light on, always.
 
 #define		SLEEP_MODE						4 // Sleep mode select -- 4 is good for all, 2 for production only
 /*
@@ -190,7 +203,7 @@
 any higher number is masked back to the above series.
 */
 #define		TIMER_PRESCALER					1 // Timer0 Prescaler
-/*
+/* Can be used in testing to decrease the PWM cycle to something more easily detectable
 0 - Timer Turned off
 1 - Ckio / 1
 2 - Ckio / 8
@@ -245,8 +258,8 @@ So any value not 9 or 10 will always be 8 bit.
 #endif		//DEBUG
 #endif //USE_PRODUCTION
 
-#define		WDTCR_VALUE_DAY					(1<<WDE|1<<WDIE)|(WDT_PRESCALER_DAY   & 0b00100111) // Mask out any non-prescaler bits to prevent mistakes
-#define		WDTCR_VALUE_NIGHT				(1<<WDE|1<<WDIE)|(WDT_PRESCALER_NIGHT & 0b00100111)
+#define		WDTCR_VALUE_DAY					(1<<WDIE)|(WDT_PRESCALER_DAY   & 0b00100111) // Mask out any non-prescaler bits to prevent mistakes
+#define		WDTCR_VALUE_NIGHT				(1<<WDIE)|(WDT_PRESCALER_NIGHT & 0b00100111)
 
 #define		ADCSRA_START					0b11001000 | (ADC_PRESCALER & 0b00000111)
 
@@ -336,6 +349,7 @@ So any value not 9 or 10 will always be 8 bit.
 #define		FLAG_SLOWTURNOFF			0x01
 #define		FLAG_LASTMODE_WAS_DAY		0x02
 #define		FLAG_LIGHTISON				0x04
+#define		FLAG_SET_SLEEP				0x08
 
 
 
@@ -363,7 +377,7 @@ uint8_t		OperationalFlags; // Flag Register
 
 int main(void)
 {
-	// Diable the power to the Analog Comparator:
+	// Disable the power to the Analog Comparator:
 	ACSR = ACSR_INTERNAL;
 	
 	// Set protected registers, if required:
@@ -383,31 +397,38 @@ int main(void)
 	CLKPSR = CLOCK_PRESCALER_INTERNAL;
 #endif
 	
+	SMCR = SMCR_INTERNAL;
+	
 	PORTB = INITIAL_PORTB;
 	DDRB = INITIAL_DDRB;
 	DIDR0 = INITIAL_DIDR0;
 	ADMUX = ADC_ADMUX;
 	
+#ifdef	NIGHT_INSTALL
+	// TODO: Find out why this stays in on-mode after switch on, but when I have slept a little.
+	SwitchToNightMode();
+	OperationalFlags &= ~FLAG_LASTMODE_WAS_DAY;
+	Ticks = NIGHT_INSTALL_TIMEOUT_MINUTES;
+#else	
 	SwitchToDayMode();
-	
+#endif
+
 	WDT_CountDown = TICKS_BEFORE_SAMPLE;
 	
 	Ticks = 0; // Make sure we start at 0 ticks, since that's safest.
-	
-	//PORTB = PORTB_LEDPWM_PIN | PORTB_ENABLEBOOST_PIN;
-	/*
-	PORTB = PORTB_ENABLEBOOST_PIN;
-	OCR0OUT_REGISTER_HIGH = 0;//MAXIMUM_OCR0H_INTERNAL;
-	OCR0OUT_REGISTER_LOW = 128;//MAXIMUM_OCR0L_INTERNAL;
-	TCCR0B = TCCR0B_INTERNAL; // Enable timer fucntionality
-	TCCR0A = TCCR0A_INTERNAL;
-	*/
 	
 	sei();
 	
 	while(1)
     {
-		// Infinite empty loop, since the entire program will be interrupt based.
+		
+		if( ( OperationalFlags & FLAG_SET_SLEEP) == FLAG_SET_SLEEP )
+		{
+			// We have to enter sleep here, to avoid interrupt collisions when waking up
+			OperationalFlags &= ~FLAG_SET_SLEEP;
+			sleep_cpu();
+		}
+		
     }
 }
 
@@ -423,18 +444,18 @@ ISR(WDT_vect)
 {
 	uint8_t	Temp;
 	
-	SMCR = 0; // prevent sleep unless really wanted.
 	/* Count a tick. If tick limit is reached, trigger ADC. Use ticks by decrement
 	   to create more efficient code */
 	/* if night mode end flag is set, decrease OCR0 output, when 0 switch to day
 	   count mode */
+	
 	if( (OperationalFlags & FLAG_SLOWTURNOFF) == FLAG_SLOWTURNOFF )
 	{
 		//TODO: Make compatible with higher resolution PWM
 		Temp = OCR0OUT_REGISTER_LOW;
 		if(Temp <= OCR0_DECREASE_STEPSIZE) // this is a test to see if we're within the end-margin.
 		{                 // since step size can be arbitrary just checking for 0 can become an infinite
-						  // loop, for example with step size 2, it will wrap around once, going from
+						  // loop. For example with step size 2, it will wrap around once, going from
 						  // 1 to 254, skipping 0 the first go around. While with this check, the 
 						  // system will switch to off/day-mode when the value is 1.
 			SwitchToDayMode();
@@ -449,21 +470,23 @@ ISR(WDT_vect)
 		}
 	}
 	
+	// We don't care about WDT Reset Safety (see datasheet), so we can just re-enable here:
+	WDTCSR |= (1<<WDIE);
+	
 	WDT_CountDown--;
-	if(WDT_CountDown <= 1)
+	
+	if(WDT_CountDown == 0)
 	{
 		WDT_CountDown = TICKS_BEFORE_SAMPLE;
 		ADCSRA = ADCSRA_START;
 	}
 	else
 	{
-		// If not starting an ADC conversion: Go back to sleep mode:
-		SMCR = SMCR_INTERNAL;
-		sleep_cpu();
+		// If not starting an ADC conversion: Go back to sleep mode through the main routine:
+		OperationalFlags |= FLAG_SET_SLEEP;
 		// Because we want the option of "deep sleep", we need to only trigger when no
 		// ADC is started.
 	}
-	
 }
 
 /*
@@ -503,10 +526,10 @@ ISR(ADC_vect)
 	{ // When Day:
 		Ticks++; // count a tick
 		NightStreak = 0; // reset night streak
-		if( (OperationalFlags & FLAG_LIGHTISON) == FLAG_LIGHTISON )
-		{ // if light it on:
+		/*if( (OperationalFlags & FLAG_LIGHTISON) == FLAG_LIGHTISON )
+		{ // if light it on: */
 			DayStreak++; // add day streak
-			if( DayStreak >= MINIMUM_STREAK )
+			if( DayStreak >= MINIMUM_DAY_STREAK )
 			{
 				// switch to day mode
 				SwitchToDayMode();
@@ -514,7 +537,7 @@ ISR(ADC_vect)
 				DayStreak = 0; // May as well reset the day streak, since we don't need it anymore
 					// code cleanliness.
 			}
-		}
+		/*}*/
 	}
 	else if( Temp < DARK_THRESHOLD )
 	{ // When night:
@@ -527,9 +550,26 @@ ISR(ADC_vect)
 			if( (OperationalFlags & FLAG_LASTMODE_WAS_DAY) == FLAG_LASTMODE_WAS_DAY)
 			{
 				NightStreak++; 
-				if( (NightStreak >= MINIMUM_STREAK) && (Ticks >= MINIMUM_DAY_BEFORE_NIGHT_INTERNAL) )
+				if( (NightStreak >= MINIMUM_NIGHT_STREAK) && (Ticks >= MINIMUM_DAY_BEFORE_NIGHT_INTERNAL) )
 				{ // If the nightstreak is long enough and there were plenty Ticks:
-					Ticks = TICK_CONSTANT - Ticks; // Calculate the night-ticks.
+										
+					if(Ticks >= TICK_CONSTANT)
+					{
+						Ticks = MINIMUM_AFTERGLOW_MINUTES; // Cap the calculation to prevent overruns
+					}
+					else
+					{
+						Ticks = TICK_CONSTANT - Ticks; // Calculate the night-ticks.
+						
+						if(Ticks < MINIMUM_AFTERGLOW_MINUTES)
+						{
+							Ticks = MINIMUM_AFTERGLOW_MINUTES; // Again cap to minimum
+						}
+						else if(Ticks > MAXIMUM_AFTERGLOW_MINUTES)
+						{
+							Ticks = MAXIMUM_AFTERGLOW_MINUTES; // And cap to a maximum
+						}
+					}
 					
 					SwitchToNightMode();
 					OperationalFlags &= ~FLAG_LASTMODE_WAS_DAY; // make sure we don't re-trigger.
@@ -548,10 +588,8 @@ ISR(ADC_vect)
 		}
 	}
 	
-	
 	// When the ADC is done, go into sleep (since the WDT will interrupt it again:
-	SMCR = SMCR_INTERNAL;
-	sleep_cpu();
+	OperationalFlags |= FLAG_SET_SLEEP;
 }
 
 // helper function: Switch to day mode: Turn off lights, set timer to power saving, set WDT sampling to day interval
@@ -561,11 +599,10 @@ inline static void SwitchToDayMode()
 	TCCR0A = 0x00; // turn timer off
 	OCR0OUT_REGISTER_HIGH = INITIAL_OCR0H_INTERNAL;
 	OCR0OUT_REGISTER_LOW = INITIAL_OCR0L_INTERNAL;
-	PORTB &= ~PORTB_ENABLEBOOST_PIN; // turn off the booster
-	OperationalFlags &= ~FLAG_SLOWTURNOFF; 
+	PORTB &= ~PORTB_ENABLEBOOST_PIN; // turn off the booster 
 	WDTCSR = WDTCR_VALUE_DAY; // switch to day interval
 	PRR |= PRR_TIMEROFF; // Turn off the timer module to save energy when in day mode.
-	OperationalFlags &= ~FLAG_LIGHTISON; // make sure the system knows the lights are off
+	OperationalFlags &= ~(FLAG_SLOWTURNOFF | FLAG_LIGHTISON);
 }
 
 // helper function: Switch to night mode: Turn on lights, enable timer, set WDT sampling to night interval
@@ -573,11 +610,11 @@ inline static void SwitchToNightMode()
 {
 	PRR &= ~PRR_TIMEROFF; // Turn on the timer module to enable PWM.
 	PORTB |= PORTB_ENABLEBOOST_PIN; // turn on LED boost
-	OperationalFlags &= ~FLAG_SLOWTURNOFF; // No slow turn off, since we just started night mode
 	WDTCSR = WDTCR_VALUE_NIGHT; // switch to night interval
 	OCR0OUT_REGISTER_HIGH = MAXIMUM_OCR0H_INTERNAL;
 	OCR0OUT_REGISTER_LOW = MAXIMUM_OCR0L_INTERNAL;
 	TCCR0B = TCCR0B_INTERNAL; // Enable timer functionality
 	TCCR0A = TCCR0A_INTERNAL;
+	OperationalFlags &= ~FLAG_SLOWTURNOFF; // No slow turn off, since we just started night mode
 	OperationalFlags |= FLAG_LIGHTISON; // Set light on flag in the flagbyte
 }
