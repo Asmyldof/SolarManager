@@ -88,9 +88,9 @@
  * 
  * You are free to use this code in any of your own designs, whether free-ware or not. You are allowed
  * to use it to make buckets and buckets of money. While I would appreciate you pay me a bucket or
- * two if you do, you are in no way obligated.
+ * two if you do, you are in no way obligated. But you might end up with a great help-desk if you do ;-).
  *
- * But, there's rules!
+ *  ---> But, there's rules! (All rules carry the "Without prior written consent" label, there's always exceptions possible)
  * One: You MUST include this entire notice in the source files that include ANY of my work.
  * Two: Your end-product must contain a reference/dedication to me and preferably my website.
  * Three: Any assistance with any or all of this code may be subject to billing, contact me to find out.
@@ -118,7 +118,9 @@
 
 #define		WDT_PRESC_DAY_PRODUCTION		0b00100001 // WDT 8s
 #define		WDT_PRESC_NIGHT_PRODUCTION		0b00100000 // WDT 4s
-#define		TICKS_BEFORE_SAMPLE_PRODUCTION	14
+#define		TICKS_BEFORE_SAMPLE_PRODUCTION	14 // This 14 is theoretically wrong, but because the WDT timer is
+											 // only accurate to 10% (or worse), some tweaking and testing 
+											 // showed that this specific one runs a tiny bit slow at 2.5V.
 
 #define		USE_PRODUCTION					
 
@@ -129,6 +131,7 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 // TODO: Find the bug in Night Install that makes it hang in light-on mode
+// TODO: See if the bug has been fixed (later, when there's time to build a reference example board)
 //#define		NIGHT_INSTALL					// Setting this define will make the unit start a 120minute 
 								// night mode run after power-up, this is most useful when installing at night
 								// to see if all the lights are properly connected, plus during the day it'll turn 
@@ -359,6 +362,15 @@ So any value not 9 or 10 will always be 8 bit.
  * 
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
+// NOTE: In the current version these, or at least SwitchToDayMode have become
+//   Candidates to become proper functions, possibly included through an external 
+//   and included module, although the total codebase is still quite small.
+//   Changing these to proper functions might even just push the code size back to
+//   512Bytes, allowing the use of the ATTiny5 in stead of the 10.
+//   Aside from that some other things have been overly expanded during the 
+//   testing and debugging phase on Monday nov 10th (of which very little ended
+//   up in the repository, as I am quite efficient at hunting broken code without
+//   continuously committing and reverting).
 inline static void SwitchToDayMode();
 inline static void SwitchToNightMode();
 
@@ -405,19 +417,18 @@ int main(void)
 	ADMUX = ADC_ADMUX;
 	
 #ifdef	NIGHT_INSTALL
-	// TODO: Find out why this stays in on-mode after switch on, but when I have slept a little.
+	// TODO: Find out if this has been fixed by moving Ticks = 0; inside Else :-)
 	SwitchToNightMode();
 	OperationalFlags &= ~FLAG_LASTMODE_WAS_DAY;
 	Ticks = NIGHT_INSTALL_TIMEOUT_MINUTES;
 #else	
 	SwitchToDayMode();
+	Ticks = 0; // Make sure we start at 0 ticks, since that's safest.
 #endif
 
-	WDT_CountDown = TICKS_BEFORE_SAMPLE;
+	WDT_CountDown = TICKS_BEFORE_SAMPLE; // Counting down in the WDT interrupt: Pre-load!
 	
-	Ticks = 0; // Make sure we start at 0 ticks, since that's safest.
-	
-	sei();
+	sei(); // Enable interrupts (very important!)
 	
 	while(1)
     {
@@ -463,7 +474,7 @@ ISR(WDT_vect)
 			          // be guaranteed
 		}
 		else
-		{
+		{ // If we haven't reached the end of dimming yet; decrease the PWM value by 1 defined step size:
 			Temp -= OCR0_DECREASE_STEPSIZE; 
 			OCR0OUT_REGISTER_HIGH = 0; //TODO: Make compatible with higher resolution PWM
 			OCR0OUT_REGISTER_LOW = Temp;
@@ -473,10 +484,10 @@ ISR(WDT_vect)
 	// We don't care about WDT Reset Safety (see datasheet), so we can just re-enable here:
 	WDTCSR |= (1<<WDIE);
 	
+	// In all cases: continue running the ADC module to sample day or night to determine further action
 	WDT_CountDown--;
-	
 	if(WDT_CountDown == 0)
-	{
+	{ // This little bit is a small post-scaler of course, allowing a 1 or 2 minute interval.
 		WDT_CountDown = TICKS_BEFORE_SAMPLE;
 		ADCSRA = ADCSRA_START;
 	}
@@ -485,7 +496,7 @@ ISR(WDT_vect)
 		// If not starting an ADC conversion: Go back to sleep mode through the main routine:
 		OperationalFlags |= FLAG_SET_SLEEP;
 		// Because we want the option of "deep sleep", we need to only trigger when no
-		// ADC is started.
+		// ADC is started, as the ADC will not run in Stand-By and Power Down
 	}
 }
 
@@ -526,18 +537,17 @@ ISR(ADC_vect)
 	{ // When Day:
 		Ticks++; // count a tick
 		NightStreak = 0; // reset night streak
-		/*if( (OperationalFlags & FLAG_LIGHTISON) == FLAG_LIGHTISON )
-		{ // if light it on: */
-			DayStreak++; // add day streak
-			if( DayStreak >= MINIMUM_DAY_STREAK )
-			{
-				// switch to day mode
-				SwitchToDayMode();
-				OperationalFlags |= FLAG_LASTMODE_WAS_DAY; // Set previous mode to day, so night mode can be triggered
-				DayStreak = 0; // May as well reset the day streak, since we don't need it anymore
-					// code cleanliness.
-			}
-		/*}*/
+		
+		DayStreak++; // add day streak
+		if( DayStreak >= MINIMUM_DAY_STREAK )
+		{
+			// switch to day mode
+			SwitchToDayMode();
+			OperationalFlags |= FLAG_LASTMODE_WAS_DAY; // Set previous mode to day, so night mode can be triggered
+			DayStreak = 0; // May as well reset the day streak, since we don't need it anymore
+				// code cleanliness.
+		}
+		
 	}
 	else if( Temp < DARK_THRESHOLD )
 	{ // When night:
