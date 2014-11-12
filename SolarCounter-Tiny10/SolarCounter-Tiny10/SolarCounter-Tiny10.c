@@ -154,7 +154,7 @@
 #define		DARK_HYSTERESIS_MV				10.0 // Hysteresis in mV, with a streak longer
 											 // than 3 it's less useful to have large
 											 // hysteresis.
-#define		TICK_CONSTANT					640	// The constant from which the day
+#define		TICK_CONSTANT					625	// The constant from which the day
 											 // ticks are subtracted to get the night
 											 // ticks. See algorithm document for more
 #define		MINIMUM_NIGHT_STREAK			5	// Minimum number of samples in a row
@@ -174,6 +174,9 @@
 
 #define		SLEEP_MODE						4 // Sleep mode select -- 4 is good for all, 2 for production only
 /*
+NOTE: Mode 2, Power Down, will suspend the internal clock, without which the slow dimming end is not possible.
+    Until there's a preprocessor fix for this, the PWM dimming will cause weird behaviour, so best to stick with 0 or 2.
+// TODO: Create pre-processor scheme to enable or disable PWM system.
 0 - Idle
 1 - ADC Noise Reduction
 2 - Power-Down
