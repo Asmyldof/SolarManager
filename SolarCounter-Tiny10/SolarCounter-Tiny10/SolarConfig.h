@@ -81,11 +81,12 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 #define		WDT_PRESC_DAY_TESTING			0b00000011 // WDT 64ms -- Watchdog timer timeout during the day, see WDTCSR in datasheet
 #define		WDT_PRESC_NIGHT_TESTING			0b00000010 // WDT 0.128s -- Watchdog timer timeout during the night, see WDTCSR in datasheet
-#define		TICKS_BEFORE_SAMPLE_TESTING		14 // number of ticks to count in both situations to get the final sample time-out
+#define		TICKS_BEFORE_SAMPLE_DAY_TESTING		14 // number of ticks to count in both situations to get the final sample time-out
+#define		TICKS_BEFORE_SAMPLE_NIGHT_TESTING	14
 
 #define		WDT_PRESC_DAY_PRODUCTION		0b00100001 // WDT 8s
 #define		WDT_PRESC_NIGHT_PRODUCTION		0b00100000 // WDT 4s
-#define		TICKS_BEFORE_SAMPLE_PRODUCTION	15 // The two ticks numbers are dependent on the exact timing 
+#define		TICKS_BEFORE_SAMPLE_DAY_PRODUCTION	15 // The two ticks numbers are dependent on the exact timing 
 											 // accuracy and/or offset. In my development device it was off
 											 // a little and I needed 14 in stead of 15. Depending on how accurate
 											 // you want your system to be you may have to tweak up the numbers
@@ -96,6 +97,7 @@
 											 // powered up, using more energy. While compared to 3W of lights
 											 // it's still negligible, you never know what might be using up your 
 											 // very last Wh of battery).
+#define		TICKS_BEFORE_SAMPLE_NIGHT_PRODUCTION	15
 
 #define		USE_PRODUCTION			// Use this flag to switch between 	testing and production.	
 

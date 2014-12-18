@@ -106,6 +106,7 @@
 #include <avr/io.h>
 #include <avr/interrupt.h>
 #include <avr/sleep.h>
+#include <stdbool.h>
 
 #include "SolarConfig.h"
 #include "SolarCounter.h"
@@ -118,6 +119,7 @@
 
 inline static void SwitchToDayMode();
 inline static void SwitchToNightMode();
+inline static bool SetToDayMode();
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -166,12 +168,12 @@ int main(void)
 	SwitchToNightMode();
 	OperationalFlags &= ~FLAG_LASTMODE_WAS_DAY;
 	Ticks = NIGHT_INSTALL_TIMEOUT_MINUTES;
+	WDT_CountDown = TICKS_BEFORE_SAMPLE_NIGHT; // Counting down in the WDT interrupt: Pre-load!
 #else	
 	SwitchToDayMode();
 	Ticks = 0; // Make sure we start at 0 ticks, since that's safest.
+	WDT_CountDown = TICKS_BEFORE_SAMPLE_DAY; // Counting down in the WDT interrupt: Pre-load!
 #endif
-
-	WDT_CountDown = TICKS_BEFORE_SAMPLE; // Counting down in the WDT interrupt: Pre-load!
 	
 	sei(); // Enable interrupts (very important!)
 	
@@ -233,7 +235,11 @@ ISR(WDT_vect)
 	WDT_CountDown--;
 	if(WDT_CountDown == 0)
 	{ // This little bit is a small post-scaler of course, allowing a 1 or 2 minute interval.
-		WDT_CountDown = TICKS_BEFORE_SAMPLE;
+		if( SetToDayMode() )
+			WDT_CountDown = TICKS_BEFORE_SAMPLE_DAY;
+		else
+			WDT_CountDown = TICKS_BEFORE_SAMPLE_NIGHT;
+		
 		ADCSRA = ADCSRA_START;
 	}
 	else
@@ -358,6 +364,7 @@ inline static void SwitchToDayMode()
 	WDTCSR = WDTCR_VALUE_DAY; // switch to day interval
 	PRR |= PRR_TIMEROFF; // Turn off the timer module to save energy when in day mode.
 	OperationalFlags &= ~(FLAG_SLOWTURNOFF | FLAG_LIGHTISON);
+	OperationalFlags |= FLAG_RUNNING_DAY;
 }
 
 // helper function: Switch to night mode: Turn on lights, enable timer, set WDT sampling to night interval
@@ -370,6 +377,13 @@ inline static void SwitchToNightMode()
 	OCR0OUT_REGISTER_LOW = MAXIMUM_OCR0L_INTERNAL;
 	TCCR0B = TCCR0B_INTERNAL; // Enable timer functionality
 	TCCR0A = TCCR0A_INTERNAL;
-	OperationalFlags &= ~FLAG_SLOWTURNOFF; // No slow turn off, since we just started night mode
+	OperationalFlags &= ~(FLAG_SLOWTURNOFF | FLAG_RUNNING_DAY); // No slow turn off, since we just started night mode
 	OperationalFlags |= FLAG_LIGHTISON; // Set light on flag in the flagbyte
+}
+
+
+// Simple check to see if we run in day mode:
+inline static bool SetToDayMode()
+{
+	return (OperationalFlags & FLAG_RUNNING_DAY) == FLAG_RUNNING_DAY;
 }
