@@ -154,17 +154,34 @@
 	#define SLEEP_MODE	0
 #endif
 
-#define		SMCR_INTERNAL				(SLEEP_MODE << 1)|0x01 // Shift up sleep mode and add enable bit by logic or
 
+#define		SMCR_INTERNAL_LOWEST_ALLOWED	(SLEEP_MODE << 1)|0x01 // Shift up sleep mode and add enable bit by logic or
+
+#if (SLEEP_MODE == 0) // If the sleep mode is set to idle, with ClkIO enabled, set the undifferentiated flag:
+#define		SMCR_UNDIFFERENTIATED
+#endif
+
+// For PWM state, enable sleep mode, with IDLE forced to keep ClkIO running for PWM:
+#define		SMCR_INTERNAL_AT_PWM			0x01 // Enable sleep, with Idle mode forced.
+
+// If the wrong threshold is higher (if 1 is higher than 2), swap all the limitation values: 
+#if (AFTERGLOW_LIMITATION_THRESHOLD1 > AFTERGLOW_LIMITATION_THRESHOLD2) 
+#define		AFTERGLOW_LIMITATION_THRESHOLD1_INTERNAL	AFTERGLOW_LIMITATION_THRESHOLD2
+#define		AFTERGLOW_LIMITATION_THRESHOLD2_INTERNAL	AFTERGLOW_LIMITATION_THRESHOLD1
+#define		AFTERGLOW_LIMITATION_PWM1_INTERNAL			AFTERGLOW_LIMITATION_PWM2
+#define		AFTERGLOW_LIMITATION_PWM2_INTERNAL			AFTERGLOW_LIMITATION_PWM1
+#else
+#define		AFTERGLOW_LIMITATION_THRESHOLD1_INTERNAL	AFTERGLOW_LIMITATION_THRESHOLD1
+#define		AFTERGLOW_LIMITATION_THRESHOLD2_INTERNAL	AFTERGLOW_LIMITATION_THRESHOLD2
+#define		AFTERGLOW_LIMITATION_PWM1_INTERNAL			AFTERGLOW_LIMITATION_PWM1
+#define		AFTERGLOW_LIMITATION_PWM2_INTERNAL			AFTERGLOW_LIMITATION_PWM2
+#endif
 
 #define		FLAG_SLOWTURNOFF			0x01
 #define		FLAG_LASTMODE_WAS_DAY		0x02
 #define		FLAG_LIGHTISON				0x04
 #define		FLAG_SET_SLEEP				0x08
 #define		FLAG_RUNNING_DAY			0x10
-
-//#define		FLAG_PWM_OPERATONAL			0x20
-
-
+#define		FLAG_PWM_OPERATONAL			0x20
 
 #endif // __SOLAR_COUNTER_H__

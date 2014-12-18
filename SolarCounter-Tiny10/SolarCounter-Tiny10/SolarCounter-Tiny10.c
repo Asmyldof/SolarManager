@@ -119,7 +119,7 @@
 
 inline static void SwitchToDayMode();
 inline static void SwitchToNightMode();
-inline static bool SetToDayMode();
+inline static bool IsSetToDayMode();
 
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
@@ -133,6 +133,9 @@ uint8_t		DayStreak;		// Counter for number of day samples in a row
 uint8_t		NightStreak;	// Counter for number of night samples in a row
 uint8_t		WDT_CountDown;	// Tick Counter (counts down) inside the WDT interrupt
 uint8_t		OperationalFlags; // Flag Register
+
+uint16_t	TicksLimitPWM1;	// Flexible Limit Counter for the first threshold
+uint16_t	TicksLimitPWM2;	// Flexible Limit Counter for the second threshold
 
 int main(void)
 {
@@ -156,20 +159,25 @@ int main(void)
 	CLKPSR = CLOCK_PRESCALER_INTERNAL;
 #endif
 	
-	SMCR = SMCR_INTERNAL;
-	
 	PORTB = INITIAL_PORTB;
 	DDRB = INITIAL_DDRB;
 	DIDR0 = INITIAL_DIDR0;
 	ADMUX = ADC_ADMUX;
 	
+	NightStreak = 0;
+	DayStreak = 0;
+	
 #ifdef	NIGHT_INSTALL
 	// TODO: Find out if this has been fixed by moving Ticks = 0; inside Else :-)
+	SMCR = SMCR_INTERNAL_AT_PWM;
+	
 	SwitchToNightMode();
 	OperationalFlags &= ~FLAG_LASTMODE_WAS_DAY;
 	Ticks = NIGHT_INSTALL_TIMEOUT_MINUTES;
 	WDT_CountDown = TICKS_BEFORE_SAMPLE_NIGHT; // Counting down in the WDT interrupt: Pre-load!
 #else	
+	SMCR = SMCR_INTERNAL_LOWEST_ALLOWED;
+	
 	SwitchToDayMode();
 	Ticks = 0; // Make sure we start at 0 ticks, since that's safest.
 	WDT_CountDown = TICKS_BEFORE_SAMPLE_DAY; // Counting down in the WDT interrupt: Pre-load!
@@ -184,6 +192,17 @@ int main(void)
 		{
 			// We have to enter sleep here, to avoid interrupt collisions when waking up
 			OperationalFlags &= ~FLAG_SET_SLEEP;
+			
+#ifndef		SMCR_UNDIFFERENTIATED
+			// This block is only compiled when the two sleep modes are different, as predicated by the 
+			//    "SMCR_UNDIFFERENTIATED" flag, conditionally defined in SolarCounter.h
+
+			if( (OperationalFlags & FLAG_PWM_OPERATONAL) != FLAG_PWM_OPERATONAL ) // If we are not lighting, we can go to any sleep mode:
+				SMCR = SMCR_INTERNAL_LOWEST_ALLOWED;
+			else // Else we need to go to a PWM safe mode:
+				SMCR = SMCR_INTERNAL_AT_PWM;
+#endif
+			
 			sleep_cpu();
 		}
 		
@@ -235,7 +254,7 @@ ISR(WDT_vect)
 	WDT_CountDown--;
 	if(WDT_CountDown == 0)
 	{ // This little bit is a small post-scaler of course, allowing a 1 or 2 minute interval.
-		if( SetToDayMode() )
+		if( IsSetToDayMode() )
 			WDT_CountDown = TICKS_BEFORE_SAMPLE_DAY;
 		else
 			WDT_CountDown = TICKS_BEFORE_SAMPLE_NIGHT;
@@ -302,7 +321,7 @@ ISR(ADC_vect)
 	}
 	else if( Temp < DARK_THRESHOLD )
 	{ // When night:
-		DayStreak = 0; // reset day streak
+		//DayStreak = 0; // reset day streak
 		if( (OperationalFlags & FLAG_LIGHTISON) != FLAG_LIGHTISON )
 		{ // if light is off
 			
@@ -330,6 +349,16 @@ ISR(ADC_vect)
 						{
 							Ticks = MAXIMUM_AFTERGLOW_MINUTES; // And cap to a maximum
 						}
+						
+						if(Ticks > AFTERGLOW_LIMITATION_THRESHOLD1_INTERNAL)
+							TicksLimitPWM1 = Ticks - AFTERGLOW_LIMITATION_THRESHOLD1_INTERNAL;
+						else
+							TicksLimitPWM1 = 0;
+							
+						if(Ticks > AFTERGLOW_LIMITATION_THRESHOLD2_INTERNAL)
+							TicksLimitPWM2 = Ticks - AFTERGLOW_LIMITATION_THRESHOLD2_INTERNAL;
+						else
+							TicksLimitPWM2 = 0;
 					}
 					
 					SwitchToNightMode();
@@ -341,10 +370,34 @@ ISR(ADC_vect)
 		else
 		{ // if in stead the light is on:
 			Ticks--; // take off one tick
+			
+			if( DayStreak != 0 ) // We have not yet reset the day-streak, so we use the nightstreak to timeout:
+			{
+				NightStreak++;
+				if( NightStreak >= MINIMUM_NIGHT_TO_RESET_DAY )
+				{
+					NightStreak = 0;
+					DayStreak = 0;
+				}
+			}
+			
+			if( Ticks < TicksLimitPWM2 )
+			{ // This one will trigger last (because of processing in SolarCounter.h it will be the longest time-out)
+				OperationalFlags |= FLAG_PWM_OPERATONAL; // enable PWM decreased intensity.
+				OCR0OUT_REGISTER_HIGH = 0; //TODO: Make compatible with higher resolution PWM
+				OCR0OUT_REGISTER_LOW = AFTERGLOW_LIMITATION_PWM2_INTERNAL;
+			}
+			else if( Ticks < TicksLimitPWM1 )
+			{
+				OperationalFlags |= FLAG_PWM_OPERATONAL; // enable PWM decreased intensity.
+				OCR0OUT_REGISTER_HIGH = 0; //TODO: Make compatible with higher resolution PWM
+				OCR0OUT_REGISTER_LOW = AFTERGLOW_LIMITATION_PWM1_INTERNAL;
+			}
+			
 			if( Ticks == 0 )
 			{
 				OperationalFlags &= ~FLAG_LIGHTISON; // prevent "light on" events from triggering
-				OperationalFlags |= FLAG_SLOWTURNOFF; // enable PWM slow decrease.
+				OperationalFlags |= (FLAG_SLOWTURNOFF | FLAG_PWM_OPERATONAL); // enable PWM slow decrease.
 			}
 		}
 	}
@@ -363,7 +416,8 @@ inline static void SwitchToDayMode()
 	PORTB &= ~PORTB_ENABLEBOOST_PIN; // turn off the booster 
 	WDTCSR = WDTCR_VALUE_DAY; // switch to day interval
 	PRR |= PRR_TIMEROFF; // Turn off the timer module to save energy when in day mode.
-	OperationalFlags &= ~(FLAG_SLOWTURNOFF | FLAG_LIGHTISON);
+	// Switching off all lighting operations, means setting the flags to false as well:
+	OperationalFlags &= ~(FLAG_SLOWTURNOFF | FLAG_LIGHTISON | FLAG_PWM_OPERATONAL);
 	OperationalFlags |= FLAG_RUNNING_DAY;
 }
 
@@ -383,7 +437,7 @@ inline static void SwitchToNightMode()
 
 
 // Simple check to see if we run in day mode:
-inline static bool SetToDayMode()
+inline static bool IsSetToDayMode()
 {
 	return (OperationalFlags & FLAG_RUNNING_DAY) == FLAG_RUNNING_DAY;
 }

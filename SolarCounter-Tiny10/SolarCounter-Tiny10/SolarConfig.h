@@ -113,7 +113,6 @@
 								// night mode run after power-up, this is most useful when installing at night
 								// to see if all the lights are properly connected, plus during the day it'll turn 
 								// off after 30 minutes (defined number, can be changed).
-
 #define		NIGHT_INSTALL_TIMEOUT_MINUTES	120
 
 // Make the defined milivolts floating (by addind a trailing .0):
@@ -138,14 +137,26 @@
 											 // there's leaves falling onto the sensor or
 											 // something else like that, never take the
 											 // maximum)
+#define		MINIMUM_NIGHT_TO_RESET_DAY		20 // Minimum number of consecutive ticks of night 
+											 // before the system resets the daystreak
+											 // (That is number of ticks that night mode is already
+											 //  enabled / light is on. So it will automatically include
+											 //  the minimum nightstreak time.)
+
 #define		MINIMUM_AFTERGLOW_MINUTES		130 // Minimum number of ticks to keep the light on, always
 #define		MAXIMUM_AFTERGLOW_MINUTES		415 // Maximum number of ticks to keep the light on, always.
 
-#define		SLEEP_MODE						4 // Sleep mode select -- 4 is good for all, 2 for production only
+// The following defines control at what time the system goes to a lower brightness to conserve energy.
+// If this function is to be disabled, either the PWM values can be kept maximum, or the thresholds can be set above the MAXIMUM_AFTERGLOW_MINUTES
+#define		AFTERGLOW_LIMITATION_THRESHOLD1	150 // After what number of ticks will the system go to PWM setting one
+#define		AFTERGLOW_LIMITATION_THRESHOLD2	270 // After what number of ticks will the system go to PWM setting two
+
+#define		AFTERGLOW_LIMITATION_PWM1		180 // PWM value when Threshold 1 is reached
+#define		AFTERGLOW_LIMITATION_PWM2		120 // PWM value when Threshold 2 is reached
+
+#define		SLEEP_MODE						2 // Sleep mode select
 /*
-NOTE: Mode 2, Power Down, will suspend the internal clock, without which the slow dimming end is not possible.
-    Until there's a preprocessor fix for this, the PWM dimming will cause weird behaviour, so best to stick with 0 or 2.
-// TODO: Create pre-processor scheme to enable or disable PWM system.
+NOTE: All modes are available now, but when the PWM output is used by the code, it will automatically go to Idle to keep ClkIO on, to allow PWM
 0 - Idle
 1 - ADC Noise Reduction
 2 - Power-Down
