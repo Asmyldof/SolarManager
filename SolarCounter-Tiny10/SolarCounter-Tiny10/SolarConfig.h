@@ -107,9 +107,7 @@
  * 
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-// TODO: Find the bug in Night Install that makes it hang in light-on mode
-// TODO: See if the bug has been fixed (later, when there's time to build a reference example board)
-#define		NIGHT_INSTALL					// Setting this define will make the unit start a 120minute 
+#define		NIGHT_INSTALL			// Setting this define will make the unit start a 120minute 
 								// night mode run after power-up, this is most useful when installing at night
 								// to see if all the lights are properly connected, plus during the day it'll turn 
 								// off after 30 minutes (defined number, can be changed).
@@ -129,7 +127,7 @@
 											 // before the system switches over to night mode
 #define		MINIMUM_DAY_STREAK				30 // minimum number of samples to switch to
 											 // day mode.
-#define		MINIMUM_DAY_BEFORE_NIGHT		300	// Minimum number of minutes counted 
+#define		MINIMUM_DAY_BEFORE_NIGHT		270	// Minimum number of minutes counted 
 											 // at which the software will accept a streak 
 											 // to be actual night time. Shortest day in the
 											 // Netherlands is near 8 hours, so I chose
@@ -137,7 +135,7 @@
 											 // there's leaves falling onto the sensor or
 											 // something else like that, never take the
 											 // maximum)
-#define		MINIMUM_NIGHT_TO_RESET_DAY		40 // Minimum number of consecutive ticks of night 
+#define		MINIMUM_NIGHT_TO_RESET_DAY		30 // Minimum number of consecutive ticks of night 
 											 // before the system resets the daystreak
 											 // (That is number of ticks that night mode is already
 											 //  enabled / light is on. So it will automatically include

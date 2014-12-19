@@ -69,10 +69,10 @@
 #endif		//DEBUG
 #endif //USE_PRODUCTION
 
-#define		WDTCR_VALUE_DAY					(1<<WDIE)|(WDT_PRESCALER_DAY   & 0b00100111) // Mask out any non-prescaler bits to prevent mistakes
-#define		WDTCR_VALUE_NIGHT				(1<<WDIE)|(WDT_PRESCALER_NIGHT & 0b00100111)
+#define		WDTCR_VALUE_DAY					((1<<WDIE)|(WDT_PRESCALER_DAY   & 0b00100111)) // Mask out any non-prescaler bits to prevent mistakes
+#define		WDTCR_VALUE_NIGHT				((1<<WDIE)|(WDT_PRESCALER_NIGHT & 0b00100111))
 
-#define		ADCSRA_START					0b11001000 | (ADC_PRESCALER & 0b00000111)
+#define		ADCSRA_START					(0b11001000 | (ADC_PRESCALER & 0b00000111))
 
 #define		CCP_SIGNATURE					0xD8 // Page 12 of the Datasheets
 
@@ -91,11 +91,11 @@
 	#define CLOCK_PRESCALER_INTERNAL 3 // if reserved mode chosen, default back to Source / 8
 #endif
 
-#define		INITIAL_OCR0L_INTERNAL		INITIAL_OCR0 & 0x0FF
-#define		INITIAL_OCR0H_INTERNAL		INITIAL_OCR0 & 0xFF00
+#define		INITIAL_OCR0L_INTERNAL		(INITIAL_OCR0 & 0x0FF)
+#define		INITIAL_OCR0H_INTERNAL		(INITIAL_OCR0 & 0xFF00)
 
-#define		MAXIMUM_OCR0L_INTERNAL		MAXIMUM_OCR0 & 0x0FF
-#define		MAXIMUM_OCR0H_INTERNAL		MAXIMUM_OCR0 & 0xFF00
+#define		MAXIMUM_OCR0L_INTERNAL		(MAXIMUM_OCR0 & 0x0FF)
+#define		MAXIMUM_OCR0H_INTERNAL		(MAXIMUM_OCR0 & 0xFF00)
 
 // Calculate the dark and light thresholds from the values set above:
 #define		DARK_THRESHOLD		(uint8_t)(((DARK_THRESHOLD_MV - DARK_HYSTERESIS_MV)*255.0)/SUPPLY_VOLTAGE_MV)
@@ -108,7 +108,7 @@
 
 // Define PORTB and DDRB from defined pins:
 #define		INITIAL_PORTB		0x00					// PORTB at startup
-#define		INITIAL_DDRB		PORTB_LEDPWM_PIN|PORTB_ENABLEBOOST_PIN
+#define		INITIAL_DDRB		(PORTB_LEDPWM_PIN | PORTB_ENABLEBOOST_PIN)
 														// DDRB: LEDEnable & LEDPWM output
 #define		INITIAL_DIDR0		ADC_DIDR_SENSOR_PIN		// Disable input circuitry on SENSOR
 
@@ -129,7 +129,7 @@
 #else // OCR0B_RESOLUTION is not 10 or 9
 #define		TCCR0A_INTERNAL		0b00100001
 #endif
-#define		TCCR0B_INTERNAL		0x08|(TIMER_PRESCALER & 0x07)
+#define		TCCR0B_INTERNAL		(0x08|(TIMER_PRESCALER & 0x07))
 
 #if	(PORTB_LEDPWM_PIN == (1<<PORTB1))
 #define		OCR0OUT_REGISTER_LOW	OCR0BL
@@ -155,7 +155,7 @@
 #endif
 
 
-#define		SMCR_INTERNAL_LOWEST_ALLOWED	(SLEEP_MODE << 1)|0x01 // Shift up sleep mode and add enable bit by logic or
+#define		SMCR_INTERNAL_LOWEST_ALLOWED	((SLEEP_MODE << 1)|0x01) // Shift up sleep mode and add enable bit by logic or
 
 #if (SLEEP_MODE == 0) // If the sleep mode is set to idle, with ClkIO enabled, set the undifferentiated flag:
 #define		SMCR_UNDIFFERENTIATED
@@ -170,6 +170,7 @@
 #define		AFTERGLOW_LIMITATION_THRESHOLD2_INTERNAL	AFTERGLOW_LIMITATION_THRESHOLD1
 #define		AFTERGLOW_LIMITATION_PWM1_INTERNAL			AFTERGLOW_LIMITATION_PWM2
 #define		AFTERGLOW_LIMITATION_PWM2_INTERNAL			AFTERGLOW_LIMITATION_PWM1
+#warning "AFTERGLOW_LIMITATION_THRESHOLD1 larger than THRESHOLD2, swapping 1 and 2 values."
 #else
 #define		AFTERGLOW_LIMITATION_THRESHOLD1_INTERNAL	AFTERGLOW_LIMITATION_THRESHOLD1
 #define		AFTERGLOW_LIMITATION_THRESHOLD2_INTERNAL	AFTERGLOW_LIMITATION_THRESHOLD2
