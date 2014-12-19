@@ -79,14 +79,14 @@
  *  Configuration Defines, testing and production
  * 
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-#define		WDT_PRESC_DAY_TESTING			0b00000010 // 64ms + 26 ticks for calibrated // original: 0b00000011 // WDT 0.125s -- Watchdog timer timeout during the day, see WDTCSR in datasheet
-#define		WDT_PRESC_NIGHT_TESTING			0b00000001 // 32ms + 26 ticks for calibrated // original: 0b00000010 // WDT 64ms -- Watchdog timer timeout during the night, see WDTCSR in datasheet
-#define		TICKS_BEFORE_SAMPLE_DAY_TESTING		26 // number of ticks to count in both situations to get the final sample time-out
-#define		TICKS_BEFORE_SAMPLE_NIGHT_TESTING	26
+#define		WDT_PRESC_DAY_TESTING			0b00000011 // WDT 0.125s -- Watchdog timer timeout during the day, see WDTCSR in datasheet
+#define		WDT_PRESC_NIGHT_TESTING			0b00000010 // WDT 64ms -- Watchdog timer timeout during the night, see WDTCSR in datasheet
+#define		TICKS_BEFORE_SAMPLE_DAY_TESTING		15 // number of ticks to count in both situations to get the final sample time-out
+#define		TICKS_BEFORE_SAMPLE_NIGHT_TESTING	15
 
-#define		WDT_PRESC_DAY_PRODUCTION		0b00100000 // 4s + 25ticks for calibrated // original: 0b00100001 // WDT 8s
-#define		WDT_PRESC_NIGHT_PRODUCTION		0b00000111 // 2s + 25ticks for calibrated // original: 0b00100000 // WDT 4s
-#define		TICKS_BEFORE_SAMPLE_DAY_PRODUCTION	25 // original: 15 // The two ticks numbers are dependent on the exact timing 
+#define		WDT_PRESC_DAY_PRODUCTION		0b00100001 // WDT 8s
+#define		WDT_PRESC_NIGHT_PRODUCTION		0b00100000 // WDT 4s
+#define		TICKS_BEFORE_SAMPLE_DAY_PRODUCTION	15 // The two ticks numbers are dependent on the exact timing 
 											 // accuracy and/or offset. In my development device it was off
 											 // a little and I needed 14 in stead of 15. Depending on how accurate
 											 // you want your system to be you may have to tweak up the numbers
@@ -97,7 +97,7 @@
 											 // powered up, using more energy. While compared to 3W of lights
 											 // it's still negligible, you never know what might be using up your 
 											 // very last Wh of battery).
-#define		TICKS_BEFORE_SAMPLE_NIGHT_PRODUCTION	25 // original: 15
+#define		TICKS_BEFORE_SAMPLE_NIGHT_PRODUCTION	15
 
 #define		USE_PRODUCTION			// Use this flag to switch between 	testing and production.	
 
@@ -107,7 +107,7 @@
  * 
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-//#define		NIGHT_INSTALL			// Setting this define will make the unit start a 120minute 
+#define		NIGHT_INSTALL			// Setting this define will make the unit start a 120minute 
 								// night mode run after power-up, this is most useful when installing at night
 								// to see if all the lights are properly connected, plus during the day it'll turn 
 								// off after 30 minutes (defined number, can be changed).
@@ -127,7 +127,7 @@
 											 // before the system switches over to night mode
 #define		MINIMUM_DAY_STREAK				30 // minimum number of samples to switch to
 											 // day mode.
-#define		MINIMUM_DAY_BEFORE_NIGHT		270	// Minimum number of minutes counted 
+#define		MINIMUM_DAY_BEFORE_NIGHT		300	// Minimum number of minutes counted 
 											 // at which the software will accept a streak 
 											 // to be actual night time. Shortest day in the
 											 // Netherlands is near 8 hours, so I chose
