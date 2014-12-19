@@ -99,7 +99,7 @@
 											 // very last Wh of battery).
 #define		TICKS_BEFORE_SAMPLE_NIGHT_PRODUCTION	25 // original: 15
 
-//#define		USE_PRODUCTION			// Use this flag to switch between 	testing and production.	
+#define		USE_PRODUCTION			// Use this flag to switch between 	testing and production.	
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * 
@@ -107,7 +107,7 @@
  * 
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#define		NIGHT_INSTALL			// Setting this define will make the unit start a 120minute 
+//#define		NIGHT_INSTALL			// Setting this define will make the unit start a 120minute 
 								// night mode run after power-up, this is most useful when installing at night
 								// to see if all the lights are properly connected, plus during the day it'll turn 
 								// off after 30 minutes (defined number, can be changed).
@@ -120,7 +120,7 @@
 #define		DARK_HYSTERESIS_MV				10.0 // Hysteresis in mV, with a streak longer
 											 // than 3 it's less useful to have large
 											 // hysteresis.
-#define		TICK_CONSTANT					600	// The constant from which the day
+#define		TICK_CONSTANT					625	// The constant from which the day
 											 // ticks are subtracted to get the night
 											 // ticks. See algorithm document for more
 #define		MINIMUM_NIGHT_STREAK			5	// Minimum number of samples in a row

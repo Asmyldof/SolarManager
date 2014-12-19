@@ -117,29 +117,34 @@
 #error "10bit resoltion not supported yet"
 // Even though the code doesn't support it yet, the TCCR0A is added here, so when it's
 // supportes, only the error needs to be removed.
-#define		TCCR0A_INTERNAL		0b00100011
+#define		TCCR0A_PRE_INTERNAL		0b00000011
 // TODO: WDT interrupt needs to be made compatible with 10 and 9 bit PWM before the above error is removed!
 #elif OCR0B_RESOLUTION == 9
 #warning "PWM Resolution set to 9 bits, please check if this is intended"
 #error "9bit resoltion not supported yet"
 // Even though the code doesn't support it yet, the TCCR0A is added here, so when it's
 // supportes, only the error needs to be removed.
-#define		TCCR0A_INTERNAL		0b00100010
+#define		TCCR0A_PRE_INTERNAL		0b00000010
 // TODO: WDT interrupt needs to be made compatible with 10 and 9 bit PWM before the above error is removed!
 #else // OCR0B_RESOLUTION is not 10 or 9
-#define		TCCR0A_INTERNAL		0b00100001
+#define		TCCR0A_PRE_INTERNAL		0b00000001
 #endif
 #define		TCCR0B_INTERNAL		(0x08|(TIMER_PRESCALER & 0x07))
 
 #if	(PORTB_LEDPWM_PIN == (1<<PORTB1))
-#define		OCR0OUT_REGISTER_LOW	OCR0BL
-#define		OCR0OUT_REGISTER_HIGH	OCR0BH
+	#define		OCR0OUT_REGISTER_LOW	OCR0BL
+	#define		OCR0OUT_REGISTER_HIGH	OCR0BH
+	#define		TCCR0A_OCR_BITS			0b00100000
 #elif (PORTB_LEDPWM_PIN == (1<<PORTB0))
-#define		OCR0OUT_REGISTER_LOW	OCR0AL
-#define		OCR0OUT_REGISTER_HIGH	OCR0AH
+	#define		OCR0OUT_REGISTER_LOW	OCR0AL
+	#define		OCR0OUT_REGISTER_HIGH	OCR0AH
+	#define		TCCR0A_OCR_BITS			0b10000000
 #else
 #error "Configured LEDPWM output pin is not a Timer0 PWM enabled pin."
 #endif
+
+// Build up the TCCR0A value using previously made conditional defines:
+#define		TCCR0A_INTERNAL			(TCCR0A_PRE_INTERNAL | TCCR0A_OCR_BITS)
 
 #define		ACSR_INTERNAL				0x80 // Power disable to the Analog Comparator.
 #define		PRR_TIMEROFF				0x01 // PRR value to disable the Timer
