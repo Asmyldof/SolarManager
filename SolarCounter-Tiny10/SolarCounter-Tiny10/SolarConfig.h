@@ -79,14 +79,14 @@
  *  Configuration Defines, testing and production
  * 
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-#define		WDT_PRESC_DAY_TESTING			0b00000011 // WDT 64ms -- Watchdog timer timeout during the day, see WDTCSR in datasheet
-#define		WDT_PRESC_NIGHT_TESTING			0b00000010 // WDT 0.128s -- Watchdog timer timeout during the night, see WDTCSR in datasheet
-#define		TICKS_BEFORE_SAMPLE_DAY_TESTING		14 // number of ticks to count in both situations to get the final sample time-out
-#define		TICKS_BEFORE_SAMPLE_NIGHT_TESTING	14
+#define		WDT_PRESC_DAY_TESTING			0b00000010 // 64ms + 26 ticks for calibrated // original: 0b00000011 // WDT 0.125s -- Watchdog timer timeout during the day, see WDTCSR in datasheet
+#define		WDT_PRESC_NIGHT_TESTING			0b00000001 // 32ms + 26 ticks for calibrated // original: 0b00000010 // WDT 64ms -- Watchdog timer timeout during the night, see WDTCSR in datasheet
+#define		TICKS_BEFORE_SAMPLE_DAY_TESTING		26 // number of ticks to count in both situations to get the final sample time-out
+#define		TICKS_BEFORE_SAMPLE_NIGHT_TESTING	26
 
-#define		WDT_PRESC_DAY_PRODUCTION		0b00100001 // WDT 8s
-#define		WDT_PRESC_NIGHT_PRODUCTION		0b00100000 // WDT 4s
-#define		TICKS_BEFORE_SAMPLE_DAY_PRODUCTION	15 // The two ticks numbers are dependent on the exact timing 
+#define		WDT_PRESC_DAY_PRODUCTION		0b00100000 // 4s + 25ticks for calibrated // original: 0b00100001 // WDT 8s
+#define		WDT_PRESC_NIGHT_PRODUCTION		0b00000111 // 2s + 25ticks for calibrated // original: 0b00100000 // WDT 4s
+#define		TICKS_BEFORE_SAMPLE_DAY_PRODUCTION	25 // original: 15 // The two ticks numbers are dependent on the exact timing 
 											 // accuracy and/or offset. In my development device it was off
 											 // a little and I needed 14 in stead of 15. Depending on how accurate
 											 // you want your system to be you may have to tweak up the numbers
@@ -97,9 +97,9 @@
 											 // powered up, using more energy. While compared to 3W of lights
 											 // it's still negligible, you never know what might be using up your 
 											 // very last Wh of battery).
-#define		TICKS_BEFORE_SAMPLE_NIGHT_PRODUCTION	15
+#define		TICKS_BEFORE_SAMPLE_NIGHT_PRODUCTION	25 // original: 15
 
-#define		USE_PRODUCTION			// Use this flag to switch between 	testing and production.	
+//#define		USE_PRODUCTION			// Use this flag to switch between 	testing and production.	
 
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
  * 
@@ -109,7 +109,7 @@
 
 // TODO: Find the bug in Night Install that makes it hang in light-on mode
 // TODO: See if the bug has been fixed (later, when there's time to build a reference example board)
-//#define		NIGHT_INSTALL					// Setting this define will make the unit start a 120minute 
+#define		NIGHT_INSTALL					// Setting this define will make the unit start a 120minute 
 								// night mode run after power-up, this is most useful when installing at night
 								// to see if all the lights are properly connected, plus during the day it'll turn 
 								// off after 30 minutes (defined number, can be changed).
@@ -122,7 +122,7 @@
 #define		DARK_HYSTERESIS_MV				10.0 // Hysteresis in mV, with a streak longer
 											 // than 3 it's less useful to have large
 											 // hysteresis.
-#define		TICK_CONSTANT					625	// The constant from which the day
+#define		TICK_CONSTANT					600	// The constant from which the day
 											 // ticks are subtracted to get the night
 											 // ticks. See algorithm document for more
 #define		MINIMUM_NIGHT_STREAK			5	// Minimum number of samples in a row
@@ -137,22 +137,22 @@
 											 // there's leaves falling onto the sensor or
 											 // something else like that, never take the
 											 // maximum)
-#define		MINIMUM_NIGHT_TO_RESET_DAY		20 // Minimum number of consecutive ticks of night 
+#define		MINIMUM_NIGHT_TO_RESET_DAY		40 // Minimum number of consecutive ticks of night 
 											 // before the system resets the daystreak
 											 // (That is number of ticks that night mode is already
 											 //  enabled / light is on. So it will automatically include
 											 //  the minimum nightstreak time.)
 
-#define		MINIMUM_AFTERGLOW_MINUTES		130 // Minimum number of ticks to keep the light on, always
-#define		MAXIMUM_AFTERGLOW_MINUTES		415 // Maximum number of ticks to keep the light on, always.
+#define		MINIMUM_AFTERGLOW_MINUTES		120 // Minimum number of ticks to keep the light on, always
+#define		MAXIMUM_AFTERGLOW_MINUTES		400 // Maximum number of ticks to keep the light on, always.
 
 // The following defines control at what time the system goes to a lower brightness to conserve energy.
 // If this function is to be disabled, either the PWM values can be kept maximum, or the thresholds can be set above the MAXIMUM_AFTERGLOW_MINUTES
 #define		AFTERGLOW_LIMITATION_THRESHOLD1	150 // After what number of ticks will the system go to PWM setting one
 #define		AFTERGLOW_LIMITATION_THRESHOLD2	270 // After what number of ticks will the system go to PWM setting two
 
-#define		AFTERGLOW_LIMITATION_PWM1		180 // PWM value when Threshold 1 is reached
-#define		AFTERGLOW_LIMITATION_PWM2		120 // PWM value when Threshold 2 is reached
+#define		AFTERGLOW_LIMITATION_PWM1		170 // PWM value when Threshold 1 is reached
+#define		AFTERGLOW_LIMITATION_PWM2		105 // PWM value when Threshold 2 is reached
 
 #define		SLEEP_MODE						2 // Sleep mode select
 /*

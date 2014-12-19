@@ -167,6 +167,9 @@ int main(void)
 	NightStreak = 0;
 	DayStreak = 0;
 	
+	TicksLimitPWM1 = 0;
+	TicksLimitPWM2 = 0;
+	
 #ifdef	NIGHT_INSTALL
 	// TODO: Find out if this has been fixed by moving Ticks = 0; inside Else :-)
 	SMCR = SMCR_INTERNAL_AT_PWM;
@@ -196,7 +199,6 @@ int main(void)
 #ifndef		SMCR_UNDIFFERENTIATED
 			// This block is only compiled when the two sleep modes are different, as predicated by the 
 			//    "SMCR_UNDIFFERENTIATED" flag, conditionally defined in SolarCounter.h
-
 			if( (OperationalFlags & FLAG_PWM_OPERATONAL) != FLAG_PWM_OPERATONAL ) // If we are not lighting, we can go to any sleep mode:
 				SMCR = SMCR_INTERNAL_LOWEST_ALLOWED;
 			else // Else we need to go to a PWM safe mode:
@@ -411,7 +413,7 @@ inline static void SwitchToDayMode()
 {
 	TCCR0B = 0x00; // turn timer off
 	TCCR0A = 0x00; // turn timer off
-	OCR0OUT_REGISTER_HIGH = INITIAL_OCR0H_INTERNAL;
+	OCR0OUT_REGISTER_HIGH = 0;//INITIAL_OCR0H_INTERNAL;
 	OCR0OUT_REGISTER_LOW = INITIAL_OCR0L_INTERNAL;
 	PORTB &= ~PORTB_ENABLEBOOST_PIN; // turn off the booster 
 	WDTCSR = WDTCR_VALUE_DAY; // switch to day interval
@@ -427,7 +429,7 @@ inline static void SwitchToNightMode()
 	PRR &= ~PRR_TIMEROFF; // Turn on the timer module to enable PWM.
 	PORTB |= PORTB_ENABLEBOOST_PIN; // turn on LED boost
 	WDTCSR = WDTCR_VALUE_NIGHT; // switch to night interval
-	OCR0OUT_REGISTER_HIGH = MAXIMUM_OCR0H_INTERNAL;
+	OCR0OUT_REGISTER_HIGH = 0;//MAXIMUM_OCR0H_INTERNAL;
 	OCR0OUT_REGISTER_LOW = MAXIMUM_OCR0L_INTERNAL;
 	TCCR0B = TCCR0B_INTERNAL; // Enable timer functionality
 	TCCR0A = TCCR0A_INTERNAL;
